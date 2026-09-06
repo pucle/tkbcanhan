@@ -3,11 +3,12 @@
 // Quét tất cả user có settings.notify.enabled = true, kiểm tra hôm nay có lịch học không,
 // rồi gửi email tóm tắt tới địa chỉ họ đã lưu.
 //
-// LƯU Ý: Vercel Cron chỉ gọi được 1 lần/ngày ở giờ cố định trên gói Hobby (free).
-// Vì mỗi user có thể chọn giờ gửi khác nhau (n_time trong modal), cron này nên chạy mỗi giờ
-// (hoặc gần nhất có thể) và chỉ gửi cho user nào có "giờ gửi" khớp với giờ hiện tại.
-// Trên gói Hobby free, Vercel Cron tối đa 1 lần/ngày — nếu cần chạy nhiều lần/giờ,
-// cần nâng lên gói Pro, hoặc dùng dịch vụ cron ngoài (vd cron-job.org) gọi vào URL này mỗi giờ.
+// LƯU Ý: gói Vercel Hobby (free) chỉ cho phép cron chạy 1 LẦN/NGÀY vào giờ cố định
+// (đặt trong vercel.json, vd 23:00 UTC = 06:00 sáng giờ Hà Nội). Vì vậy cron này KHÔNG
+// so khớp chính xác với giờ mà từng user tự chọn (n_time) — mọi user đã bật thông báo
+// sẽ nhận email vào đúng giờ cron chạy, bất kể họ chọn giờ nào trong modal.
+// Muốn gửi đúng giờ riêng cho từng người, cần nâng gói Pro (cho phép cron nhiều lần/giờ)
+// hoặc dùng dịch vụ cron ngoài miễn phí như cron-job.org để gọi URL này mỗi giờ.
 
 const { neon } = require('@neondatabase/serverless');
 const { sendDailyScheduleEmail } = require('../lib/mailer');
@@ -18,9 +19,6 @@ const DAY_LABELS_VI = { 2: 'Thứ 2', 3: 'Thứ 3', 4: 'Thứ 4', 5: 'Thứ 5', 
 function nowInTZ() {
   const s = new Date().toLocaleString('en-US', { timeZone: TIMEZONE });
   return new Date(s);
-}
-function currentHHMM(d) {
-  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 // Thứ trong tuần theo quy ước app: 2=Thứ2 ... 7=Thứ7 (JS: 0=CN,1=T2,...6=T7)
 function weekdayCode(d) {
@@ -41,7 +39,6 @@ module.exports = async (req, res) => {
 
   const sql = neon(process.env.DATABASE_URL);
   const now = nowInTZ();
-  const nowHHMM = currentHHMM(now);
   const todayCode = weekdayCode(now);
   const dateLabel = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}`;
 
@@ -56,10 +53,8 @@ module.exports = async (req, res) => {
       const notify = (data.settings && data.settings.notify) || {};
       if (!notify.enabled || !notify.email) continue;
 
-      // Chỉ gửi khi giờ hiện tại (làm tròn phút) khớp giờ user đã chọn.
-      // Vì cron chạy theo lịch cố định (vd mỗi giờ), so khớp theo "giờ:phút" đơn giản này
-      // chỉ chính xác nếu cron được gọi đúng phút đó — xem ghi chú vercel.json bên dưới.
-      if (notify.time !== nowHHMM) continue;
+      // Không so khớp notify.time ở đây — gói free chỉ chạy cron 1 lần/ngày cố định
+      // (xem ghi chú đầu file), nên mọi user bật thông báo đều nhận vào đúng giờ cron chạy.
 
       // Tìm buổi học hôm nay: cần tính đúng "tuần thứ mấy" theo weekOneDate đã lưu.
       // Đơn giản hoá: duyệt qua customEvents + overrides, coi các buổi học đã lưu
