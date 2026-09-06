@@ -64,6 +64,8 @@
   .clock{font-size:12.5px;color:#5b5f72;font-variant-numeric:tabular-nums;white-space:nowrap;}
   .clock b{color:var(--ink);}
   .controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .sync-status{font-size:11px;color:#5b5f72;white-space:nowrap;}
+  .sync-status.err{color:#c0392b;font-weight:700;}
 
   .week-label{
     font-weight:700;font-size:13px;
@@ -178,6 +180,7 @@
         <div class="title-block">
           <h1>Thời khóa biểu cá nhân</h1>
           <span class="clock">Hà Nội/Bangkok (UTC+7) <b id="clockTime">--:--:--</b></span>
+          <span class="sync-status" id="syncStatus"></span>
         </div>
         <div class="controls">
           <button id="prevBtn">←</button>
@@ -188,6 +191,7 @@
           <input type="date" id="jumpDate" title="Chọn ngày để nhảy tới tuần chứa ngày đó">
           <button id="jumpBtn">Đi tới</button>
           <button id="settingsBtn" title="Đặt ngày bắt đầu tuần 1 (dùng khi reset học kỳ)">⚙ Tuần 1</button>
+          <button id="syncBtn" title="Đổi mã đồng bộ giữa các thiết bị">🔗 <span id="syncCodeLabel">...</span></button>
           <button class="primary ghost" id="addBtn" title="Thêm buổi học mới">+ Thêm</button>
           <button class="primary" id="pdfBtn" title="Tải PDF khổ ngang">⬇ PDF</button>
           <button id="printBtn" title="In">🖨 In</button>
@@ -280,13 +284,31 @@
     <div class="field">
       <label>Ngày Thứ 2 của tuần 1</label>
       <input type="date" id="s_weekOneDate">
-      <small>Dùng để reset lịch cho học kỳ/kỳ học mới — toàn bộ số thứ tự tuần sẽ tính lại theo ngày này. Các buổi học và tuần áp dụng bạn đã lưu vẫn giữ nguyên số tuần, chỉ ngày tháng thực tế của mỗi tuần thay đổi theo mốc mới.</small>
+      <small>Dùng để reset lịch cho học kỳ/kỳ học mới — toàn bộ số thứ tự tuần sẽ tính lại theo ngày này.</small>
     </div>
     <div class="modal-actions">
       <div></div>
       <div class="right">
         <button type="button" id="settingsCancelBtn">Hủy</button>
         <button type="button" class="primary" id="settingsSaveBtn">Lưu</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal mã đồng bộ thiết bị -->
+<div class="overlay" id="syncOverlay">
+  <div class="modal">
+    <h2>Mã đồng bộ thiết bị</h2>
+    <div class="field">
+      <label>Mã đồng bộ</label>
+      <input type="text" id="s_syncCode" placeholder="VD: ten-cua-ban-2026">
+      <small>Nhập cùng một mã trên điện thoại và máy tính để dữ liệu tự động đồng bộ qua lại. Giữ mã này riêng tư như mật khẩu — bất kỳ ai biết mã đều xem/sửa được lịch này.</small>
+    </div>
+    <div class="modal-actions">
+      <button type="button" id="genCodeBtn">Tạo mã ngẫu nhiên</button>
+      <div class="right">
+        <button type="button" class="primary" id="syncSaveBtn">Xác nhận</button>
       </div>
     </div>
   </div>
@@ -301,8 +323,8 @@ function nowTZ(){
 }
 
 /* ================== DỮ LIỆU LỊCH HỌC (mặc định) ================== */
-let START_DATE = new Date(2026, 7, 31); // mặc định: 31/08/2026 = Thứ 2 tuần 1 — có thể đổi qua "⚙ Tuần 1"
-const SCHEDULE_END_DATE = new Date(2030, 11, 31); // khung thời gian trải tới hết năm 2030
+let START_DATE = new Date(2026, 7, 31);
+const SCHEDULE_END_DATE = new Date(2030, 11, 31);
 
 const SUBJECTS = {
   IT1108: { name: "Nhập môn lập trình", color: "#2f6f6a" },
@@ -333,7 +355,6 @@ function W(str){
 }
 
 const EVENTS = [
-  // Thứ 2
   {day:2, start:"06:45", end:"09:10", weeks:W("2-3,6-7,10,14,17-18"), room:"D3-301",  hp:"MI1141", code:"171985", type:"BT"},
   {day:2, start:"06:45", end:"09:10", weeks:W("4-5,8-9,15-16,19"),    room:"Online",  hp:"MI1141", code:"171985", type:"BT"},
   {day:2, start:"06:45", end:"11:05", weeks:W("11"),                  room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
@@ -346,7 +367,6 @@ const EVENTS = [
   {day:2, start:"12:50", end:"17:10", weeks:W("11"),                  room:"SanB13",  hp:"MIL1240",code:"172538", type:"TH"},
   {day:2, start:"12:50", end:"17:10", weeks:W("13"),                  room:"SanKTX",  hp:"MIL1240",code:"172538", type:"TH"},
 
-  // Thứ 3
   {day:3, start:"06:45", end:"11:05", weeks:W("13"), room:"D3-5-401", hp:"MIL1220",code:"172533", type:"LT+BT"},
   {day:3, start:"06:45", end:"11:05", weeks:W("12"), room:"SanB13",   hp:"MIL1230",code:"172536", type:"LT"},
   {day:3, start:"06:45", end:"11:05", weeks:W("11"), room:"SanB13",   hp:"MIL1240",code:"172538", type:"TH"},
@@ -354,7 +374,6 @@ const EVENTS = [
   {day:3, start:"12:50", end:"17:10", weeks:W("11"), room:"D3-5-401", hp:"MIL1240",code:"172538", type:"TH"},
   {day:3, start:"12:50", end:"17:10", weeks:W("13"), room:"SanB13",   hp:"MIL1240",code:"172538", type:"TH"},
 
-  // Thứ 4
   {day:4, start:"06:45", end:"08:15", weeks:W("2-10,14-19"), room:"D5-203",  hp:"MI1141", code:"171987", type:"LT"},
   {day:4, start:"06:45", end:"11:05", weeks:W("11"),         room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
   {day:4, start:"06:45", end:"11:05", weeks:W("13"),         room:"D3-5-401",hp:"MIL1220",code:"172533", type:"LT+BT"},
@@ -365,7 +384,6 @@ const EVENTS = [
   {day:4, start:"12:50", end:"17:10", weeks:W("11"),         room:"SanKTX",  hp:"MIL1240",code:"172538", type:"TH"},
   {day:4, start:"12:50", end:"17:10", weeks:W("13"),         room:"SanB7",   hp:"MIL1240",code:"172538", type:"TH"},
 
-  // Thứ 5
   {day:5, start:"06:45", end:"09:10", weeks:W("2-10,14-19"), room:"D3-401",  hp:"IT1108", code:"171988", type:"LT+BT"},
   {day:5, start:"06:45", end:"11:05", weeks:W("11"),         room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
   {day:5, start:"06:45", end:"11:05", weeks:W("12"),         room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
@@ -376,7 +394,6 @@ const EVENTS = [
   {day:5, start:"12:50", end:"17:10", weeks:W("13"),         room:"SanB13",  hp:"MIL1240",code:"172538", type:"TH"},
   {day:5, start:"16:00", end:"17:30", weeks:W("2-10,14-19"), room:"B1-103",  hp:"IT2000", code:"171981", type:"LT+BT"},
 
-  // Thứ 6
   {day:6, start:"06:45", end:"10:05", weeks:W("12"), room:"D3-5-401", hp:"MIL1230",code:"172534", type:"TH"},
   {day:6, start:"06:45", end:"11:05", weeks:W("13"), room:"D3-5-401", hp:"MIL1220",code:"172533", type:"LT+BT"},
   {day:6, start:"06:45", end:"11:05", weeks:W("11"), room:"D3-5-401", hp:"MIL1230",code:"172534", type:"TH"},
@@ -384,7 +401,6 @@ const EVENTS = [
   {day:6, start:"12:50", end:"17:10", weeks:W("11"), room:"D3-5-401", hp:"MIL1210",code:"172532", type:"LT+BT"},
   {day:6, start:"12:50", end:"17:10", weeks:W("12"), room:"D3-5-401", hp:"MIL1210",code:"172532", type:"LT+BT"},
 
-  // Thứ 7
   {day:7, start:"06:45", end:"11:05", weeks:W("11"), room:"SanB7",   hp:"MIL1230",code:"172536", type:"LT"},
   {day:7, start:"06:45", end:"11:05", weeks:W("12"), room:"SanB13",  hp:"MIL1240",code:"172538", type:"TH"},
   {day:7, start:"12:50", end:"17:10", weeks:W("11"), room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
@@ -423,36 +439,60 @@ let MAX_WEEK = computeMaxWeek();
 let selectedWeek = 1;
 let realCurrentWeek = 1;
 
-/* ================== LƯU TRỮ (thêm/sửa/xóa buổi học + cấu hình tuần 1) ================== */
-const STORAGE_KEY = 'schedule-data-v1';
+/* ================== ĐỒNG BỘ QUA API (Vercel + Neon Postgres) ================== */
 let overrides = {};
 let customEvents = [];
 let customSubjects = {};
 let settings = {};
 
+function getSyncCode(){ return localStorage.getItem('tkb_sync_code'); }
+function setSyncCode(c){ localStorage.setItem('tkb_sync_code', c); }
+function setSyncStatus(text, isErr){
+  const el = document.getElementById('syncStatus');
+  el.textContent = text;
+  el.className = 'sync-status' + (isErr ? ' err' : '');
+}
+
 async function loadData(){
+  const code = getSyncCode();
+  if(!code) return;
+  setSyncStatus('Đang tải dữ liệu...');
   try{
-    const r = await window.storage.get(STORAGE_KEY, false);
-    if(r && r.value){
-      const d = JSON.parse(r.value);
-      overrides = d.overrides || {};
-      customEvents = d.customEvents || [];
-      customSubjects = d.customSubjects || {};
-      settings = d.settings || {};
+    const res = await fetch(`/api/schedule?id=${encodeURIComponent(code)}`);
+    const json = await res.json();
+    if(!res.ok) throw new Error(json.error || 'Lỗi tải dữ liệu');
+    if(json.data){
+      overrides = json.data.overrides || {};
+      customEvents = json.data.customEvents || [];
+      customSubjects = json.data.customSubjects || {};
+      settings = json.data.settings || {};
       if(settings.weekOneDate){
         const [y,m,dd] = settings.weekOneDate.split('-').map(Number);
         START_DATE = new Date(y, m-1, dd);
       }
     }
+    setSyncStatus('Đã đồng bộ');
   }catch(e){
-    // chưa có dữ liệu lưu trước đó
+    console.error(e);
+    setSyncStatus('Lỗi tải dữ liệu — kiểm tra mạng', true);
   }
 }
 async function saveData(){
+  const code = getSyncCode();
+  if(!code) return;
+  setSyncStatus('Đang lưu...');
   try{
-    await window.storage.set(STORAGE_KEY, JSON.stringify({overrides, customEvents, customSubjects, settings}), false);
+    const res = await fetch('/api/schedule', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ id: code, data: {overrides, customEvents, customSubjects, settings} })
+    });
+    const json = await res.json();
+    if(!res.ok) throw new Error(json.error || 'Lỗi lưu dữ liệu');
+    setSyncStatus('Đã lưu');
   }catch(e){
-    console.error('Không lưu được dữ liệu:', e);
+    console.error(e);
+    setSyncStatus('Lỗi lưu dữ liệu — kiểm tra mạng', true);
   }
 }
 
@@ -709,6 +749,31 @@ document.getElementById('settingsSaveBtn').addEventListener('click', async ()=>{
   settingsOverlay.classList.remove('open');
 });
 
+/* ================== MODAL MÃ ĐỒNG BỘ ================== */
+const syncOverlay = document.getElementById('syncOverlay');
+function randomCode(){ return 'tkb-' + Math.random().toString(36).slice(2,8); }
+function openSyncModal(){
+  document.getElementById('s_syncCode').value = getSyncCode() || '';
+  syncOverlay.classList.add('open');
+}
+document.getElementById('syncBtn').addEventListener('click', openSyncModal);
+document.getElementById('genCodeBtn').addEventListener('click', ()=>{
+  document.getElementById('s_syncCode').value = randomCode();
+});
+document.getElementById('syncSaveBtn').addEventListener('click', async ()=>{
+  const val = document.getElementById('s_syncCode').value.trim();
+  if(!val){ alert('Vui lòng nhập mã.'); return; }
+  setSyncCode(val);
+  document.getElementById('syncCodeLabel').textContent = val;
+  syncOverlay.classList.remove('open');
+  await loadData();
+  MAX_WEEK = computeMaxWeek();
+  realCurrentWeek = currentWeekNumber();
+  selectedWeek = Math.min(Math.max(realCurrentWeek,1), MAX_WEEK);
+  weekOptions();
+  render();
+});
+
 /* ================== ĐIỀU HƯỚNG TUẦN ================== */
 document.getElementById('prevBtn').addEventListener('click', ()=>{
   selectedWeek = Math.max(1, selectedWeek-1);
@@ -754,7 +819,13 @@ document.getElementById('pdfBtn').addEventListener('click', ()=>{
 
 /* ================== KHỞI TẠO ================== */
 (async function init(){
-  await loadData();
+  const code = getSyncCode();
+  document.getElementById('syncCodeLabel').textContent = code || '(chưa đặt)';
+  if(!code){
+    openSyncModal();
+  } else {
+    await loadData();
+  }
   MAX_WEEK = computeMaxWeek();
   realCurrentWeek = currentWeekNumber();
   selectedWeek = Math.min(Math.max(realCurrentWeek,1), MAX_WEEK);
