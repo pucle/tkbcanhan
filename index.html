@@ -141,6 +141,11 @@
   .event .name{font-weight:700;display:block;}
   .event .meta{display:block;opacity:0.85;font-size:10px;margin-top:1px;}
 
+  .empty-hint{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    text-align:center;color:#8a8d9c;font-size:13px;padding:20px;pointer-events:none;
+  }
+
   /* Modal */
   .overlay{
     position:fixed;inset:0;background:rgba(28,32,51,0.45);
@@ -163,6 +168,7 @@
   .modal-actions .right{display:flex;gap:8px;}
   .assign-row{border-top:1px dashed var(--line);padding-top:6px;margin-top:6px;}
   .assign-row:first-child{border-top:none;margin-top:0;}
+  .auth-error{color:#c0392b;font-size:12px;display:none;margin-bottom:10px;}
 
   @media print{
     body{padding:0;background:#fff;overflow:visible;}
@@ -182,7 +188,6 @@
       <div class="topbar">
         <div class="title-block">
           <h1>Thời khóa biểu cá nhân</h1>
-          <span style="font-size:10px;color:#5b5f72;">bản thử nhập SIS · v2</span>
           <span class="clock">Hà Nội/Bangkok (UTC+7) <b id="clockTime">--:--:--</b></span>
           <span class="sync-status" id="syncStatus"></span>
         </div>
@@ -195,11 +200,11 @@
           <input type="date" id="jumpDate" title="Chọn ngày để nhảy tới tuần chứa ngày đó">
           <button id="jumpBtn">Đi tới</button>
           <button id="settingsBtn" title="Đặt ngày bắt đầu tuần 1 (dùng khi reset học kỳ)">⚙ Tuần 1</button>
-          <button id="syncBtn" title="Đổi mã đồng bộ giữa các thiết bị">🔗 <span id="syncCodeLabel">...</span></button>
           <button id="importBtn" title="Dán TKB copy từ trang SIS HUST">📋 Nhập từ SIS</button>
           <button class="primary ghost" id="addBtn" title="Thêm buổi học mới">+ Thêm</button>
           <button class="primary" id="pdfBtn" title="Tải PDF khổ ngang">⬇ PDF</button>
           <button id="printBtn" title="In">🖨 In</button>
+          <button id="authBtn" title="Tài khoản">👤 <span id="authLabel">Đăng nhập</span></button>
         </div>
       </div>
 
@@ -301,19 +306,37 @@
   </div>
 </div>
 
-<!-- Modal mã đồng bộ thiết bị -->
-<div class="overlay" id="syncOverlay">
+<!-- Modal đăng nhập / đăng ký / tài khoản -->
+<div class="overlay" id="authOverlay">
   <div class="modal">
-    <h2>Mã đồng bộ thiết bị</h2>
-    <div class="field">
-      <label>Mã đồng bộ</label>
-      <input type="text" id="s_syncCode" placeholder="VD: ten-cua-ban-2026">
-      <small>Nhập cùng một mã trên điện thoại và máy tính để dữ liệu tự động đồng bộ qua lại. Giữ mã này riêng tư như mật khẩu — bất kỳ ai biết mã đều xem/sửa được lịch này.</small>
+    <h2 id="authTitle">Đăng nhập</h2>
+
+    <div id="authLoggedOutView">
+      <div class="auth-error" id="a_error"></div>
+      <div class="field">
+        <label>Tên đăng nhập</label>
+        <input type="text" id="a_username" placeholder="VD: minhanh2026" autocomplete="username">
+        <small>3-32 ký tự, chỉ gồm chữ thường, số, dấu . hoặc _</small>
+      </div>
+      <div class="field">
+        <label>Mật khẩu</label>
+        <input type="password" id="a_password" placeholder="Tối thiểu 6 ký tự" autocomplete="current-password">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="ghost" id="a_toggleModeBtn">Chưa có tài khoản? Đăng ký</button>
+        <div class="right">
+          <button type="button" class="primary" id="a_submitBtn">Đăng nhập</button>
+        </div>
+      </div>
     </div>
-    <div class="modal-actions">
-      <button type="button" id="genCodeBtn">Tạo mã ngẫu nhiên</button>
-      <div class="right">
-        <button type="button" class="primary" id="syncSaveBtn">Xác nhận</button>
+
+    <div id="authLoggedInView" style="display:none;">
+      <p style="font-size:13px;">Đang đăng nhập với: <b id="a_currentUsername"></b></p>
+      <div class="modal-actions">
+        <button type="button" class="danger" id="a_logoutBtn">Đăng xuất</button>
+        <div class="right">
+          <button type="button" id="a_closeBtn">Đóng</button>
+        </div>
       </div>
     </div>
   </div>
@@ -351,23 +374,22 @@ function nowTZ(){
   const s = new Date().toLocaleString('en-US', { timeZone: TIMEZONE });
   return new Date(s);
 }
+function dateOnly(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+function addDays(d, n){ const r = new Date(d); r.setDate(r.getDate()+n); return r; }
 
-/* ================== DỮ LIỆU LỊCH HỌC (mặc định) ================== */
-let START_DATE = new Date(2026, 7, 31);
+/* ================== DỮ LIỆU LỊCH HỌC ==================
+   Không còn dữ liệu mẫu hard-code sẵn — mỗi tài khoản bắt đầu với lịch trống,
+   tự thêm buổi học bằng nút "+ Thêm" hoặc dán TKB copy từ SIS bằng "📋 Nhập từ SIS". */
+function getDefaultMonday(){
+  const n = nowTZ();
+  const day = n.getDay(); // 0=CN,1=T2,...
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  return dateOnly(addDays(n, diffToMonday));
+}
+let START_DATE = getDefaultMonday();
 const SCHEDULE_END_DATE = new Date(2030, 11, 31);
 
-const SUBJECTS = {
-  IT1108: { name: "Nhập môn lập trình", color: "#2f6f6a" },
-  IT2000: { name: "Nhập môn CNTT và TT", color: "#8a5a2e" },
-  MI1111: { name: "Giải tích I", color: "#4a5fc1" },
-  MI1141: { name: "Đại số", color: "#b0473e" },
-  MIL1210:{ name: "Đường lối QP&AN", color: "#5b7a3a" },
-  MIL1220:{ name: "Công tác QP&AN", color: "#a3762f" },
-  MIL1230:{ name: "Quân sự chung", color: "#6b4e8e" },
-  MIL1240:{ name: "KT chiến đấu bộ binh", color: "#2c7fa3" },
-  PE1014: { name: "Lý luận TDTT", color: "#c0392b" },
-};
-
+const SUBJECTS = {};
 const PALETTE = ["#2f6f6a","#8a5a2e","#4a5fc1","#b0473e","#5b7a3a","#a3762f","#6b4e8e","#2c7fa3","#c0392b","#1f6f43","#7a3b69","#3f6b8a","#946b2d","#37788f"];
 
 function W(str){
@@ -392,7 +414,6 @@ function padTime(t){
 
 // Quét toàn bộ văn bản dán vào theo từng "khối" 5 token liên tiếp:
 // Thứ(2-7)  Giờ(HH:MM-HH:MM)  Tuần(số/phẩy/gạch)  Phòng(không khoảng trắng)  Mã lớp(số)
-// Cách này không phụ thuộc việc dữ liệu dán vào có xuống dòng/tab hay bị dồn thành 1 dòng.
 function parseSISPaste(text){
   const tokens = text.split(/\s+/).filter(Boolean);
   const rows = [];
@@ -423,10 +444,8 @@ function parseSISPaste(text){
   return rows;
 }
 
-// Nếu người dùng dán kèm bảng "Danh sách học phần đăng ký" trên SIS (Mã lớp, Mã lớp kèm,
-// Tên lớp, Mã HP, Loại lớp, ...), hàm này tự dò từng dòng để lấy tên môn + mã học phần
-// tương ứng với TỪNG mã lớp (cả "Mã lớp" và "Mã lớp kèm" đều được gán, vì cả hai đều có thể
-// xuất hiện trong bảng TKB) — hoàn toàn tự động, không cần gõ tay.
+// Nếu người dùng dán kèm bảng "Danh sách học phần đăng ký" trên SIS, hàm này tự dò
+// từng dòng để lấy tên môn + mã học phần tương ứng với TỪNG mã lớp — tự động, không cần gõ tay.
 function parseCourseListLines(text){
   const map = {};
   const re = /^(\d{4,7})\s+(\d{4,7})\s+(.+?)\s+([A-ZĐ]{2,4}\d{3,5})\s+(\S+)\s+.*$/;
@@ -442,63 +461,12 @@ function parseCourseListLines(text){
   return map;
 }
 
-const EVENTS = [
-  {day:2, start:"06:45", end:"09:10", weeks:W("2-3,6-7,10,14,17-18"), room:"D3-301",  hp:"MI1141", code:"171985", type:"BT"},
-  {day:2, start:"06:45", end:"09:10", weeks:W("4-5,8-9,15-16,19"),    room:"Online",  hp:"MI1141", code:"171985", type:"BT"},
-  {day:2, start:"06:45", end:"11:05", weeks:W("11"),                  room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
-  {day:2, start:"06:45", end:"11:05", weeks:W("12"),                  room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
-  {day:2, start:"06:45", end:"11:05", weeks:W("13"),                  room:"D3-5-401",hp:"MIL1220",code:"172533", type:"LT+BT"},
-  {day:2, start:"09:20", end:"11:45", weeks:W("2-3,6-7,10,14,17-18"), room:"D3-301",  hp:"MI1111", code:"171982", type:"BT"},
-  {day:2, start:"09:20", end:"11:45", weeks:W("4-5,8-9,15-16,19"),    room:"Online",  hp:"MI1111", code:"171982", type:"BT"},
-  {day:2, start:"12:30", end:"17:30", weeks:W("2-6"),                 room:"B1-109",  hp:"IT2000", code:"768104", type:"TN"},
-  {day:2, start:"12:50", end:"17:10", weeks:W("12"),                  room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
-  {day:2, start:"12:50", end:"17:10", weeks:W("11"),                  room:"SanB13",  hp:"MIL1240",code:"172538", type:"TH"},
-  {day:2, start:"12:50", end:"17:10", weeks:W("13"),                  room:"SanKTX",  hp:"MIL1240",code:"172538", type:"TH"},
-
-  {day:3, start:"06:45", end:"11:05", weeks:W("13"), room:"D3-5-401", hp:"MIL1220",code:"172533", type:"LT+BT"},
-  {day:3, start:"06:45", end:"11:05", weeks:W("12"), room:"SanB13",   hp:"MIL1230",code:"172536", type:"LT"},
-  {day:3, start:"06:45", end:"11:05", weeks:W("11"), room:"SanB13",   hp:"MIL1240",code:"172538", type:"TH"},
-  {day:3, start:"12:50", end:"17:10", weeks:W("12"), room:"D3-5-401", hp:"MIL1230",code:"172534", type:"TH"},
-  {day:3, start:"12:50", end:"17:10", weeks:W("11"), room:"D3-5-401", hp:"MIL1240",code:"172538", type:"TH"},
-  {day:3, start:"12:50", end:"17:10", weeks:W("13"), room:"SanB13",   hp:"MIL1240",code:"172538", type:"TH"},
-
-  {day:4, start:"06:45", end:"08:15", weeks:W("2-10,14-19"), room:"D5-203",  hp:"MI1141", code:"171987", type:"LT"},
-  {day:4, start:"06:45", end:"11:05", weeks:W("11"),         room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
-  {day:4, start:"06:45", end:"11:05", weeks:W("13"),         room:"D3-5-401",hp:"MIL1220",code:"172533", type:"LT+BT"},
-  {day:4, start:"06:45", end:"11:05", weeks:W("12"),         room:"SanB13",  hp:"MIL1240",code:"172538", type:"TH"},
-  {day:4, start:"08:25", end:"10:05", weeks:W("2-10,14-19"), room:"D5-203",  hp:"MI1111", code:"171984", type:"LT"},
-  {day:4, start:"12:30", end:"17:30", weeks:W("7,9,14,16,18"),room:"B1-107", hp:"IT1108", code:"767979", type:"TN"},
-  {day:4, start:"12:50", end:"17:10", weeks:W("12"),         room:"SanKTX",  hp:"MIL1230",code:"172536", type:"LT"},
-  {day:4, start:"12:50", end:"17:10", weeks:W("11"),         room:"SanKTX",  hp:"MIL1240",code:"172538", type:"TH"},
-  {day:4, start:"12:50", end:"17:10", weeks:W("13"),         room:"SanB7",   hp:"MIL1240",code:"172538", type:"TH"},
-
-  {day:5, start:"06:45", end:"09:10", weeks:W("2-10,14-19"), room:"D3-401",  hp:"IT1108", code:"171988", type:"LT+BT"},
-  {day:5, start:"06:45", end:"11:05", weeks:W("11"),         room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
-  {day:5, start:"06:45", end:"11:05", weeks:W("12"),         room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
-  {day:5, start:"06:45", end:"11:05", weeks:W("13"),         room:"D3-5-401",hp:"MIL1220",code:"172533", type:"LT+BT"},
-  {day:5, start:"10:30", end:"11:30", weeks:W("2-10,14-19"), room:"TC-401",  hp:"PE1014", code:"768443", type:"LT+BT"},
-  {day:5, start:"12:50", end:"17:10", weeks:W("11"),         room:"SanB7",   hp:"MIL1240",code:"172538", type:"TH"},
-  {day:5, start:"12:50", end:"17:10", weeks:W("12"),         room:"SanB7",   hp:"MIL1240",code:"172538", type:"TH"},
-  {day:5, start:"12:50", end:"17:10", weeks:W("13"),         room:"SanB13",  hp:"MIL1240",code:"172538", type:"TH"},
-  {day:5, start:"16:00", end:"17:30", weeks:W("2-10,14-19"), room:"B1-103",  hp:"IT2000", code:"171981", type:"LT+BT"},
-
-  {day:6, start:"06:45", end:"10:05", weeks:W("12"), room:"D3-5-401", hp:"MIL1230",code:"172534", type:"TH"},
-  {day:6, start:"06:45", end:"11:05", weeks:W("13"), room:"D3-5-401", hp:"MIL1220",code:"172533", type:"LT+BT"},
-  {day:6, start:"06:45", end:"11:05", weeks:W("11"), room:"D3-5-401", hp:"MIL1230",code:"172534", type:"TH"},
-  {day:6, start:"10:15", end:"11:05", weeks:W("12"), room:"D3-5-401", hp:"MIL1230",code:"172536", type:"LT"},
-  {day:6, start:"12:50", end:"17:10", weeks:W("11"), room:"D3-5-401", hp:"MIL1210",code:"172532", type:"LT+BT"},
-  {day:6, start:"12:50", end:"17:10", weeks:W("12"), room:"D3-5-401", hp:"MIL1210",code:"172532", type:"LT+BT"},
-
-  {day:7, start:"06:45", end:"11:05", weeks:W("11"), room:"SanB7",   hp:"MIL1230",code:"172536", type:"LT"},
-  {day:7, start:"06:45", end:"11:05", weeks:W("12"), room:"SanB13",  hp:"MIL1240",code:"172538", type:"TH"},
-  {day:7, start:"12:50", end:"17:10", weeks:W("11"), room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
-  {day:7, start:"12:50", end:"17:10", weeks:W("12"), room:"D3-5-401",hp:"MIL1220",code:"172533", type:"LT+BT"},
-];
+// Không còn buổi học mẫu — mỗi người dùng tự xây lịch của mình sau khi đăng nhập.
+const EVENTS = [];
 EVENTS.forEach((e,i)=>{ e.id = 'b'+i; });
 
-// Mã lớp -> {mã học phần, loại}, học từ dữ liệu mặc định ở trên.
-// Khi nhập TKB mới từ SIS, những mã lớp trùng với dữ liệu cũ sẽ tự nhận ra môn học,
-// chỉ những mã lớp hoàn toàn mới mới cần gán thủ công.
+// Mã lớp -> {mã học phần, loại}. Trống mặc định; sẽ được nạp lại từ dữ liệu đã lưu của
+// từng tài khoản (loadData) và bổ sung dần khi người dùng nhập/nhập từ SIS.
 const builtinCodeMap = {};
 EVENTS.forEach(e=>{ if(e.code) builtinCodeMap[e.code] = { hp: e.hp, type: e.type }; });
 let classCodeMap = {...builtinCodeMap};
@@ -511,8 +479,6 @@ const DAY_END_MIN   = 18*60;
 const TOTAL_MIN = DAY_END_MIN - DAY_START_MIN;
 
 function toMin(hhmm){ const [h,m] = hhmm.split(':').map(Number); return h*60+m; }
-function dateOnly(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
-function addDays(d, n){ const r = new Date(d); r.setDate(r.getDate()+n); return r; }
 function fmtShort(d){ return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0'); }
 function toInputDate(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 
@@ -534,26 +500,42 @@ let MAX_WEEK = computeMaxWeek();
 let selectedWeek = 1;
 let realCurrentWeek = 1;
 
-/* ================== ĐỒNG BỘ QUA API (Vercel + Neon Postgres) ================== */
+/* ================== DỮ LIỆU NGƯỜI DÙNG (theo tài khoản) ================== */
 let overrides = {};
 let customEvents = [];
 let customSubjects = {};
 let settings = {};
 
-function getSyncCode(){ return localStorage.getItem('tkb_sync_code'); }
-function setSyncCode(c){ localStorage.setItem('tkb_sync_code', c); }
+/* ================== ĐĂNG NHẬP / ĐĂNG KÝ (JWT, mỗi tài khoản 1 lịch riêng) ================== */
+function getToken(){ return localStorage.getItem('tkb_token'); }
+function setToken(t){ localStorage.setItem('tkb_token', t); }
+function clearToken(){ localStorage.removeItem('tkb_token'); }
+function getUsername(){ return localStorage.getItem('tkb_username'); }
+function setUsername(u){ localStorage.setItem('tkb_username', u); }
+
 function setSyncStatus(text, isErr){
   const el = document.getElementById('syncStatus');
   el.textContent = text;
   el.className = 'sync-status' + (isErr ? ' err' : '');
 }
 
+function resetLocalData(){
+  overrides = {}; customEvents = []; customSubjects = {}; settings = {};
+  classCodeMap = {...builtinCodeMap};
+}
+
 async function loadData(){
-  const code = getSyncCode();
-  if(!code) return;
+  const token = getToken();
+  if(!token) return;
   setSyncStatus('Đang tải dữ liệu...');
   try{
-    const res = await fetch(`/api/schedule?id=${encodeURIComponent(code)}`);
+    const res = await fetch('/api/schedule', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if(res.status === 401){
+      handleSessionExpired();
+      return;
+    }
     const json = await res.json();
     if(!res.ok) throw new Error(json.error || 'Lỗi tải dữ liệu');
     if(json.data){
@@ -574,15 +556,19 @@ async function loadData(){
   }
 }
 async function saveData(){
-  const code = getSyncCode();
-  if(!code) return;
+  const token = getToken();
+  if(!token) return;
   setSyncStatus('Đang lưu...');
   try{
     const res = await fetch('/api/schedule', {
       method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ id: code, data: {overrides, customEvents, customSubjects, settings, classCodeMap} })
+      headers:{'Content-Type':'application/json', 'Authorization': 'Bearer ' + token},
+      body: JSON.stringify({ data: {overrides, customEvents, customSubjects, settings, classCodeMap} })
     });
+    if(res.status === 401){
+      handleSessionExpired();
+      return;
+    }
     const json = await res.json();
     if(!res.ok) throw new Error(json.error || 'Lỗi lưu dữ liệu');
     setSyncStatus('Đã lưu');
@@ -591,6 +577,98 @@ async function saveData(){
     setSyncStatus('Lỗi lưu dữ liệu — kiểm tra mạng', true);
   }
 }
+function handleSessionExpired(){
+  clearToken();
+  localStorage.removeItem('tkb_username');
+  resetLocalData();
+  updateAuthButton();
+  setSyncStatus('Phiên đăng nhập hết hạn, vui lòng đăng nhập lại', true);
+  render();
+  openAuthModal();
+}
+
+function updateAuthButton(){
+  const username = getUsername();
+  document.getElementById('authLabel').textContent = username ? username : 'Đăng nhập';
+}
+
+let authMode = 'login';
+const authOverlay = document.getElementById('authOverlay');
+
+function openAuthModal(){
+  document.getElementById('a_error').style.display = 'none';
+  const token = getToken();
+  if(token){
+    document.getElementById('authTitle').textContent = 'Tài khoản';
+    document.getElementById('authLoggedOutView').style.display = 'none';
+    document.getElementById('authLoggedInView').style.display = 'block';
+    document.getElementById('a_currentUsername').textContent = getUsername() || '';
+  } else {
+    document.getElementById('authLoggedOutView').style.display = 'block';
+    document.getElementById('authLoggedInView').style.display = 'none';
+    setAuthMode('login');
+  }
+  authOverlay.classList.add('open');
+}
+function setAuthMode(mode){
+  authMode = mode;
+  document.getElementById('authTitle').textContent = mode === 'login' ? 'Đăng nhập' : 'Đăng ký';
+  document.getElementById('a_submitBtn').textContent = mode === 'login' ? 'Đăng nhập' : 'Đăng ký';
+  document.getElementById('a_toggleModeBtn').textContent = mode === 'login'
+    ? 'Chưa có tài khoản? Đăng ký'
+    : 'Đã có tài khoản? Đăng nhập';
+}
+document.getElementById('a_toggleModeBtn').addEventListener('click', ()=>{
+  setAuthMode(authMode === 'login' ? 'register' : 'login');
+});
+document.getElementById('authBtn').addEventListener('click', openAuthModal);
+document.getElementById('a_closeBtn').addEventListener('click', ()=> authOverlay.classList.remove('open'));
+authOverlay.addEventListener('click', (e)=>{ if(e.target === authOverlay) authOverlay.classList.remove('open'); });
+
+document.getElementById('a_logoutBtn').addEventListener('click', ()=>{
+  clearToken();
+  localStorage.removeItem('tkb_username');
+  resetLocalData();
+  updateAuthButton();
+  render();
+  openAuthModal();
+});
+
+document.getElementById('a_submitBtn').addEventListener('click', async ()=>{
+  const username = document.getElementById('a_username').value.trim();
+  const password = document.getElementById('a_password').value;
+  const errEl = document.getElementById('a_error');
+  errEl.style.display = 'none';
+  if(!username || !password){
+    errEl.textContent = 'Vui lòng nhập tên đăng nhập và mật khẩu.';
+    errEl.style.display = 'block';
+    return;
+  }
+  const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+  try{
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ username, password })
+    });
+    const json = await res.json();
+    if(!res.ok) throw new Error(json.error || 'Có lỗi xảy ra, vui lòng thử lại.');
+    setToken(json.token);
+    setUsername(json.username || username);
+    updateAuthButton();
+    authOverlay.classList.remove('open');
+    resetLocalData();
+    await loadData();
+    MAX_WEEK = computeMaxWeek();
+    realCurrentWeek = currentWeekNumber();
+    selectedWeek = Math.min(Math.max(realCurrentWeek,1), MAX_WEEK);
+    weekOptions();
+    render();
+  }catch(err){
+    errEl.textContent = err.message;
+    errEl.style.display = 'block';
+  }
+});
 
 function getAllSubjects(){
   return {...SUBJECTS, ...customSubjects};
@@ -665,13 +743,18 @@ function render(){
   const bodyRow = document.getElementById('bodyRow');
   bodyRow.querySelectorAll('.day-col').forEach(el=>el.remove());
 
+  let anyEventThisWeek = false;
+
   DAY_LIST.forEach((d,i)=>{
     const date = addDays(mon, i);
     const isToday = dateOnly(date).getTime() === todayStr;
     const col = document.createElement('div');
     col.className = 'day-col' + (isToday ? ' today' : '');
 
-    allEvents.filter(e=>e.day===d && e.weeks.includes(selectedWeek)).forEach(e=>{
+    const dayEvents = allEvents.filter(e=>e.day===d && e.weeks.includes(selectedWeek));
+    if(dayEvents.length) anyEventThisWeek = true;
+
+    dayEvents.forEach(e=>{
       const s = toMin(e.start), en = toMin(e.end);
       const top = ((s-DAY_START_MIN)/TOTAL_MIN)*100;
       const height = ((en-s)/TOTAL_MIN)*100;
@@ -703,9 +786,16 @@ function render(){
 
     bodyRow.appendChild(col);
   });
+
+  if(!anyEventThisWeek && !getToken()){
+    const hint = document.createElement('div');
+    hint.className = 'empty-hint';
+    hint.textContent = 'Đăng nhập rồi bấm "+ Thêm" hoặc "📋 Nhập từ SIS" để tạo thời khóa biểu của bạn.';
+    bodyRow.appendChild(hint);
+  }
 }
 
-/* ================== ĐỒNG HỒ ĐỒNG BỘ HÀ NỘI/BANGKOK ================== */
+/* ================== ĐỒNG HỒ ================== */
 function tickClock(){
   const n = nowTZ();
   const hh = String(n.getHours()).padStart(2,'0');
@@ -726,7 +816,16 @@ const overlay = document.getElementById('overlay');
 const form = document.getElementById('eventForm');
 let editingId = null;
 
+function requireLogin(){
+  if(!getToken()){
+    openAuthModal();
+    return false;
+  }
+  return true;
+}
+
 function openModal(existing){
+  if(!requireLogin()) return;
   form.reset();
   document.getElementById('f_color').value = '#2f6f6a';
   if(existing){
@@ -764,6 +863,7 @@ overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeModal(); 
 
 form.addEventListener('submit', async (e)=>{
   e.preventDefault();
+  if(!requireLogin()) return;
   const hp = document.getElementById('f_hp').value.trim().toUpperCase();
   const name = document.getElementById('f_name').value.trim();
   const code = document.getElementById('f_code').value.trim();
@@ -823,6 +923,7 @@ document.getElementById('deleteBtn').addEventListener('click', async ()=>{
 /* ================== MODAL CẤU HÌNH TUẦN 1 ================== */
 const settingsOverlay = document.getElementById('settingsOverlay');
 document.getElementById('settingsBtn').addEventListener('click', ()=>{
+  if(!requireLogin()) return;
   document.getElementById('s_weekOneDate').value = toInputDate(START_DATE);
   settingsOverlay.classList.add('open');
 });
@@ -846,35 +947,11 @@ document.getElementById('settingsSaveBtn').addEventListener('click', async ()=>{
   settingsOverlay.classList.remove('open');
 });
 
-/* ================== MODAL MÃ ĐỒNG BỘ ================== */
-const syncOverlay = document.getElementById('syncOverlay');
-function randomCode(){ return 'tkb-' + Math.random().toString(36).slice(2,8); }
-function openSyncModal(){
-  document.getElementById('s_syncCode').value = getSyncCode() || '';
-  syncOverlay.classList.add('open');
-}
-document.getElementById('syncBtn').addEventListener('click', openSyncModal);
-document.getElementById('genCodeBtn').addEventListener('click', ()=>{
-  document.getElementById('s_syncCode').value = randomCode();
-});
-document.getElementById('syncSaveBtn').addEventListener('click', async ()=>{
-  const val = document.getElementById('s_syncCode').value.trim();
-  if(!val){ alert('Vui lòng nhập mã.'); return; }
-  setSyncCode(val);
-  document.getElementById('syncCodeLabel').textContent = val;
-  syncOverlay.classList.remove('open');
-  await loadData();
-  MAX_WEEK = computeMaxWeek();
-  realCurrentWeek = currentWeekNumber();
-  selectedWeek = Math.min(Math.max(realCurrentWeek,1), MAX_WEEK);
-  weekOptions();
-  render();
-});
-
 /* ================== MODAL NHẬP TKB TỪ SIS (tự động hoàn toàn) ================== */
 const importOverlay = document.getElementById('importOverlay');
 
 function openImportModal(){
+  if(!requireLogin()) return;
   document.getElementById('importText').value = '';
   document.getElementById('importReplace').checked = false;
   importOverlay.classList.add('open');
@@ -985,10 +1062,10 @@ document.getElementById('pdfBtn').addEventListener('click', ()=>{
 
 /* ================== KHỞI TẠO ================== */
 (async function init(){
-  const code = getSyncCode();
-  document.getElementById('syncCodeLabel').textContent = code || '(chưa đặt)';
-  if(!code){
-    openSyncModal();
+  const token = getToken();
+  updateAuthButton();
+  if(!token){
+    openAuthModal();
   } else {
     await loadData();
   }
