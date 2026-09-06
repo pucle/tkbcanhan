@@ -37,6 +37,8 @@
   button.danger:hover{background:#c0392b;color:#fff;}
   select{cursor:pointer;padding:6px 8px;}
   textarea{resize:vertical;line-height:1.4;}
+  input:disabled, select:disabled, button:disabled{opacity:0.45;cursor:not-allowed;}
+  button:disabled:hover{background:var(--paper);color:var(--ink);}
 
   .grid-outer{
     flex:1;
@@ -170,6 +172,18 @@
   .assign-row:first-child{border-top:none;margin-top:0;}
   .auth-error{color:#c0392b;font-size:12px;display:none;margin-bottom:10px;}
 
+  /* Modal thông báo email */
+  .checkfield{display:flex;align-items:center;gap:8px;font-weight:400;}
+  .checkfield input[type="checkbox"]{width:auto;flex:none;}
+  .notify-intro{font-size:12px;color:#5b5f72;margin:0 0 14px;line-height:1.5;}
+  .notify-status{
+    font-size:12px;padding:8px 10px;border-radius:4px;
+    background:#f1efe8;color:#5b5f72;margin-bottom:12px;line-height:1.4;
+  }
+  .notify-status.ok{background:#e4efee;color:#2f6f6a;}
+  .notify-status.err{background:#fbeae7;color:#c0392b;}
+  .error-text{color:#c0392b;font-size:11px;display:none;margin-top:4px;}
+
   @media print{
     body{padding:0;background:#fff;overflow:visible;}
     .wrap{height:auto;}
@@ -204,6 +218,7 @@
           <button class="primary ghost" id="addBtn" title="Thêm buổi học mới">+ Thêm</button>
           <button class="primary" id="pdfBtn" title="Tải PDF khổ ngang">⬇ PDF</button>
           <button id="printBtn" title="In">🖨 In</button>
+          <button id="notifyBtn" title="Cài đặt email nhắc lịch học mỗi ngày">🔔 Thông báo</button>
           <button id="authBtn" title="Tài khoản">👤 <span id="authLabel">Đăng nhập</span></button>
         </div>
       </div>
@@ -362,6 +377,57 @@
       <div class="right">
         <button type="button" id="importCancelBtn">Hủy</button>
         <button type="button" class="primary" id="importConfirmBtn">Nhập ngay</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal cài đặt thông báo email hằng ngày -->
+<div class="overlay" id="notifyOverlay">
+  <div class="modal">
+    <h2>Thông báo lịch học qua email</h2>
+    <p class="notify-intro">Mỗi ngày, hệ thống sẽ gửi một email tóm tắt các buổi học trong ngày (môn học, giờ học, phòng) tới địa chỉ bạn cung cấp — gửi vào giờ bạn chọn bên dưới, theo múi giờ Hà Nội/Bangkok (UTC+7).</p>
+
+    <div id="n_statusBox" class="notify-status">Đang tải trạng thái...</div>
+
+    <div class="field">
+      <label class="checkfield">
+        <input type="checkbox" id="n_enabled">
+        Bật thông báo email hằng ngày
+      </label>
+    </div>
+
+    <div class="field">
+      <label>Địa chỉ email nhận thông báo</label>
+      <input type="email" id="n_email" placeholder="ban@gmail.com" autocomplete="email">
+      <span class="error-text" id="n_emailError">Vui lòng nhập một địa chỉ email hợp lệ.</span>
+    </div>
+
+    <div class="row2">
+      <div class="field">
+        <label>Giờ gửi mỗi ngày</label>
+        <input type="time" id="n_time" value="06:30">
+        <small>Nên đặt trước giờ vào học sớm nhất trong tuần của bạn.</small>
+      </div>
+      <div class="field">
+        <label>Múi giờ áp dụng</label>
+        <input type="text" value="UTC+7 · Hà Nội/Bangkok" disabled>
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="checkfield">
+        <input type="checkbox" id="n_onlyIfClasses">
+        Chỉ gửi email vào những ngày có lịch học (bỏ qua ngày rảnh)
+      </label>
+      <small style="margin-top:6px;">Khuyến nghị bật — tránh nhận email không cần thiết vào cuối tuần hoặc ngày nghỉ.</small>
+    </div>
+
+    <div class="modal-actions">
+      <button type="button" id="n_testBtn">✉ Gửi thử ngay</button>
+      <div class="right">
+        <button type="button" id="notifyCancelBtn">Đóng</button>
+        <button type="button" class="primary" id="notifySaveBtn">Lưu</button>
       </div>
     </div>
   </div>
@@ -1015,6 +1081,115 @@ document.getElementById('importConfirmBtn').addEventListener('click', async ()=>
     msg += '\n' + placeholderCount + ' mã lớp chưa rõ tên môn (được đặt tạm theo mã lớp) — bấm vào buổi học đó trên lịch để đổi tên nếu muốn.';
   }
   alert(msg);
+});
+
+/* ================== MODAL THÔNG BÁO EMAIL HẰNG NGÀY ================== */
+const notifyOverlay = document.getElementById('notifyOverlay');
+
+function validEmail(v){
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v).trim());
+}
+
+function notifySettings(){
+  // Giá trị mặc định hợp lý nếu người dùng chưa từng cấu hình.
+  const n = settings.notify || {};
+  return {
+    enabled: !!n.enabled,
+    email: n.email || '',
+    time: n.time || '06:30',
+    onlyIfClasses: n.onlyIfClasses !== false // mặc định true nếu chưa từng đặt
+  };
+}
+
+function notifyStatusText(n){
+  if(n.enabled && n.email){
+    return '✓ Đang bật — gửi tới ' + n.email + ' lúc ' + n.time + ' mỗi ngày (giờ Hà Nội)' +
+      (n.onlyIfClasses ? ', chỉ vào ngày có lịch học.' : ', kể cả ngày rảnh.');
+  }
+  return 'Hiện đang tắt — bạn sẽ không nhận được email nhắc lịch học nào.';
+}
+
+function setNotifyStatusBox(text, kind){
+  const box = document.getElementById('n_statusBox');
+  box.textContent = text;
+  box.className = 'notify-status' + (kind === 'ok' ? ' ok' : kind === 'err' ? ' err' : '');
+}
+
+function refreshNotifyFieldsEnabled(){
+  const on = document.getElementById('n_enabled').checked;
+  document.getElementById('n_email').disabled = !on;
+  document.getElementById('n_time').disabled = !on;
+  document.getElementById('n_onlyIfClasses').disabled = !on;
+  document.getElementById('n_testBtn').disabled = !on;
+}
+document.getElementById('n_enabled').addEventListener('change', refreshNotifyFieldsEnabled);
+
+function openNotifyModal(){
+  if(!requireLogin()) return;
+  const n = notifySettings();
+  document.getElementById('n_enabled').checked = n.enabled;
+  document.getElementById('n_email').value = n.email;
+  document.getElementById('n_time').value = n.time;
+  document.getElementById('n_onlyIfClasses').checked = n.onlyIfClasses;
+  document.getElementById('n_emailError').style.display = 'none';
+  refreshNotifyFieldsEnabled();
+  setNotifyStatusBox(notifyStatusText(n));
+  notifyOverlay.classList.add('open');
+}
+document.getElementById('notifyBtn').addEventListener('click', openNotifyModal);
+document.getElementById('notifyCancelBtn').addEventListener('click', ()=> notifyOverlay.classList.remove('open'));
+notifyOverlay.addEventListener('click', (e)=>{ if(e.target === notifyOverlay) notifyOverlay.classList.remove('open'); });
+
+document.getElementById('notifySaveBtn').addEventListener('click', async ()=>{
+  const enabled = document.getElementById('n_enabled').checked;
+  const email = document.getElementById('n_email').value.trim();
+  const time = document.getElementById('n_time').value || '06:30';
+  const onlyIfClasses = document.getElementById('n_onlyIfClasses').checked;
+  const emailErr = document.getElementById('n_emailError');
+
+  if(enabled && !validEmail(email)){
+    emailErr.style.display = 'block';
+    return;
+  }
+  emailErr.style.display = 'none';
+
+  settings.notify = { enabled, email, time, onlyIfClasses };
+  await saveData();
+  setNotifyStatusBox(notifyStatusText(notifySettings()), 'ok');
+  notifyOverlay.classList.remove('open');
+});
+
+document.getElementById('n_testBtn').addEventListener('click', async ()=>{
+  const email = document.getElementById('n_email').value.trim();
+  const emailErr = document.getElementById('n_emailError');
+  if(!validEmail(email)){
+    emailErr.style.display = 'block';
+    return;
+  }
+  emailErr.style.display = 'none';
+
+  const btn = document.getElementById('n_testBtn');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Đang gửi...';
+  try{
+    const token = getToken();
+    const res = await fetch('/api/notify-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ email })
+    });
+    const json = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(json.error || 'Gửi thử thất bại.');
+    setNotifyStatusBox('✓ Đã gửi email thử tới ' + email + '. Hãy kiểm tra hộp thư (kể cả mục Spam/Quảng cáo).', 'ok');
+  }catch(e){
+    console.error(e);
+    setNotifyStatusBox('✕ Không gửi được email thử: ' + e.message, 'err');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = original;
+    refreshNotifyFieldsEnabled();
+  }
 });
 
 /* ================== ĐIỀU HƯỚNG TUẦN ================== */
