@@ -386,7 +386,7 @@
 <div class="overlay" id="notifyOverlay">
   <div class="modal">
     <h2>Thông báo lịch học qua email</h2>
-    <p class="notify-intro">Mỗi ngày, hệ thống sẽ gửi một email tóm tắt các buổi học trong ngày (môn học, giờ học, phòng) tới địa chỉ bạn cung cấp — gửi vào giờ bạn chọn bên dưới, theo múi giờ Hà Nội/Bangkok (UTC+7).</p>
+    <p class="notify-intro">Mỗi ngày (khoảng 6h sáng, theo múi giờ Hà Nội/Bangkok UTC+7), hệ thống sẽ gửi một email tóm tắt các buổi học trong ngày (môn học, giờ học, phòng) tới địa chỉ bạn cung cấp.</p>
 
     <div id="n_statusBox" class="notify-status">Đang tải trạng thái...</div>
 
@@ -402,7 +402,6 @@
       <input type="email" id="n_email" placeholder="ban@gmail.com" autocomplete="email">
       <span class="error-text" id="n_emailError">Vui lòng nhập một địa chỉ email hợp lệ.</span>
     </div>
-
 
     <div class="field">
       <label class="checkfield">
@@ -1081,18 +1080,19 @@ function validEmail(v){
 
 function notifySettings(){
   // Giá trị mặc định hợp lý nếu người dùng chưa từng cấu hình.
+  // Ghi chú: không còn cho người dùng chọn giờ gửi — email luôn gửi vào 1 giờ cố định
+  // do server (Vercel Cron gói free) quyết định, xem notify-cron.js.
   const n = settings.notify || {};
   return {
     enabled: !!n.enabled,
     email: n.email || '',
-    time: n.time || '06:30',
     onlyIfClasses: n.onlyIfClasses !== false // mặc định true nếu chưa từng đặt
   };
 }
 
 function notifyStatusText(n){
   if(n.enabled && n.email){
-    return '✓ Đang bật — gửi tới ' + n.email + ' lúc ' + n.time + ' mỗi ngày (giờ Hà Nội)' +
+    return '✓ Đang bật — gửi tới ' + n.email + ' mỗi ngày (khoảng 6h sáng, giờ Hà Nội)' +
       (n.onlyIfClasses ? ', chỉ vào ngày có lịch học.' : ', kể cả ngày rảnh.');
   }
   return 'Hiện đang tắt — bạn sẽ không nhận được email nhắc lịch học nào.';
@@ -1107,7 +1107,6 @@ function setNotifyStatusBox(text, kind){
 function refreshNotifyFieldsEnabled(){
   const on = document.getElementById('n_enabled').checked;
   document.getElementById('n_email').disabled = !on;
-  document.getElementById('n_time').disabled = !on;
   document.getElementById('n_onlyIfClasses').disabled = !on;
   document.getElementById('n_testBtn').disabled = !on;
 }
@@ -1118,7 +1117,6 @@ function openNotifyModal(){
   const n = notifySettings();
   document.getElementById('n_enabled').checked = n.enabled;
   document.getElementById('n_email').value = n.email;
-  document.getElementById('n_time').value = n.time;
   document.getElementById('n_onlyIfClasses').checked = n.onlyIfClasses;
   document.getElementById('n_emailError').style.display = 'none';
   refreshNotifyFieldsEnabled();
@@ -1132,7 +1130,6 @@ notifyOverlay.addEventListener('click', (e)=>{ if(e.target === notifyOverlay) no
 document.getElementById('notifySaveBtn').addEventListener('click', async ()=>{
   const enabled = document.getElementById('n_enabled').checked;
   const email = document.getElementById('n_email').value.trim();
-  const time = document.getElementById('n_time').value || '06:30';
   const onlyIfClasses = document.getElementById('n_onlyIfClasses').checked;
   const emailErr = document.getElementById('n_emailError');
 
@@ -1142,7 +1139,7 @@ document.getElementById('notifySaveBtn').addEventListener('click', async ()=>{
   }
   emailErr.style.display = 'none';
 
-  settings.notify = { enabled, email, time, onlyIfClasses };
+  settings.notify = { enabled, email, onlyIfClasses };
   await saveData();
   setNotifyStatusBox(notifyStatusText(notifySettings()), 'ok');
   notifyOverlay.classList.remove('open');
