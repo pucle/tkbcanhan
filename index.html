@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Thời khóa biểu cá nhân</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<style>
+  :root{
+    --ink:#1c2033;
+    --paper:#faf9f5;
+    --line:#d8d5cb;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{
+    background:var(--paper);
+    font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;
+    color:var(--ink);
+    padding:10px;
+    overflow:hidden;
+  }
+  .wrap{height:calc(100vh - 20px);display:flex;flex-direction:column;}
+
+  button, select, input{
+    font-family:inherit;font-size:12.5px;
+    border:1.5px solid var(--ink);
+    background:var(--paper);color:var(--ink);
+    padding:6px 10px;border-radius:3px;cursor:pointer;
+  }
+  input{cursor:text;}
+  button:hover{background:var(--ink);color:var(--paper);}
+  button.primary{background:var(--ink);color:var(--paper);}
+  button.primary:hover{background:var(--paper);color:var(--ink);}
+  button.ghost{border-style:dashed;}
+  button.danger{border-color:#c0392b;color:#c0392b;}
+  button.danger:hover{background:#c0392b;color:#fff;}
+  select{cursor:pointer;padding:6px 8px;}
+
+  .grid-outer{
+    flex:1;
+    border:2px solid var(--ink);
+    background:#fff;
+    display:flex;flex-direction:column;
+    min-height:0;
+    overflow:hidden;
+  }
+  .grid-inner{
+    flex:1;display:flex;flex-direction:column;
+    min-height:0;min-width:900px;
+    overflow:auto;
+  }
+
+  .topbar{
+    display:flex;justify-content:space-between;align-items:center;
+    flex-wrap:wrap;gap:10px;
+    padding:10px 14px;
+    border-bottom:2px solid var(--ink);
+    background:#fff;
+    position:sticky;top:0;left:0;z-index:6;
+  }
+  .title-block{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;}
+  .title-block h1{font-size:16px;margin:0;white-space:nowrap;}
+  .clock{font-size:12.5px;color:#5b5f72;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .clock b{color:var(--ink);}
+  .controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+
+  .week-label{
+    font-weight:700;font-size:13px;
+    padding:6px 10px;border:1.5px solid var(--ink);border-radius:3px;
+    background:#fff;white-space:nowrap;
+  }
+  .week-label span{font-weight:400;color:#5b5f72;font-size:11px;margin-left:4px;}
+
+  .headers{
+    display:grid;
+    grid-template-columns:64px repeat(6,1fr);
+    border-bottom:2px solid var(--ink);
+    position:sticky;top:47px;background:#fff;z-index:5;
+  }
+  .headers .corner{border-right:1px solid var(--line);}
+  .headers .day-h{
+    text-align:center;padding:6px 4px;
+    border-right:1px solid var(--line);
+    font-size:12.5px;font-weight:700;
+  }
+  .headers .day-h:last-child{border-right:none;}
+  .headers .day-h .d{display:block;font-weight:400;font-size:10.5px;color:#5b5f72;margin-top:2px;}
+  .headers .day-h.today{background:#fff6df;}
+
+  .body-row{
+    display:grid;
+    grid-template-columns:64px repeat(6,1fr);
+    position:relative;
+    flex:1;
+    min-height:400px;
+  }
+  .hours{position:relative;border-right:1px solid var(--line);}
+  .hour-mark{
+    position:absolute;left:0;right:0;
+    font-size:10.5px;color:#5b5f72;
+    transform:translateY(-50%);
+    padding-left:4px;
+  }
+  .hourlines{
+    position:absolute;top:0;left:64px;right:0;bottom:0;
+    pointer-events:none;
+  }
+  .hourline{
+    position:absolute;left:0;right:0;border-top:1px solid var(--line);
+  }
+  .now-line{
+    position:absolute;left:0;right:0;border-top:2px solid #c0392b;
+  }
+  .now-line::before{
+    content:'';position:absolute;left:-4px;top:-4px;
+    width:8px;height:8px;border-radius:50%;background:#c0392b;
+  }
+
+  .day-col{
+    position:relative;border-right:1px solid var(--line);
+  }
+  .day-col:last-child{border-right:none;}
+  .day-col.today{background:#fffaf0;}
+
+  .event{
+    position:absolute;left:3px;right:3px;
+    border-radius:4px;
+    border-left:4px solid;
+    padding:4px 6px;
+    font-size:10.5px;
+    line-height:1.35;
+    overflow:hidden;
+    cursor:pointer;
+    transition:filter .1s;
+  }
+  .event:hover{filter:brightness(0.93);box-shadow:0 0 0 1.5px rgba(0,0,0,0.15) inset;}
+  .event .name{font-weight:700;display:block;}
+  .event .meta{display:block;opacity:0.85;font-size:10px;margin-top:1px;}
+
+  /* Modal */
+  .overlay{
+    position:fixed;inset:0;background:rgba(28,32,51,0.45);
+    display:none;align-items:center;justify-content:center;
+    padding:20px;z-index:50;
+  }
+  .overlay.open{display:flex;}
+  .modal{
+    background:#fff;border:2px solid var(--ink);border-radius:6px;
+    max-width:480px;width:100%;max-height:90vh;overflow-y:auto;
+    padding:20px 22px;
+  }
+  .modal h2{margin:0 0 14px;font-size:17px;}
+  .field{margin-bottom:12px;}
+  .field label{display:block;font-size:12px;font-weight:700;margin-bottom:4px;}
+  .field small{display:block;font-weight:400;color:#5b5f72;margin-top:5px;font-size:11px;}
+  .field input, .field select{width:100%;}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .modal-actions{display:flex;justify-content:space-between;gap:10px;margin-top:18px;}
+  .modal-actions .right{display:flex;gap:8px;}
+
+  @media print{
+    body{padding:0;background:#fff;overflow:visible;}
+    .wrap{height:auto;}
+    .topbar .controls{display:none;}
+    .grid-outer{border:2px solid #000;overflow:visible;}
+    .grid-inner{overflow:visible;min-width:0;}
+    @page{size:landscape;margin:8mm;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="capture">
+  <div class="grid-outer">
+    <div class="grid-inner">
+
+      <div class="topbar">
+        <div class="title-block">
+          <h1>Thời khóa biểu cá nhân</h1>
+          <span class="clock">Hà Nội/Bangkok (UTC+7) <b id="clockTime">--:--:--</b></span>
+        </div>
+        <div class="controls">
+          <button id="prevBtn">←</button>
+          <div class="week-label" id="weekLabel">Tuần —<span id="weekRange"></span></div>
+          <button id="nextBtn">→</button>
+          <select id="weekSelect"></select>
+          <button id="todayBtn">Hôm nay</button>
+          <input type="date" id="jumpDate" title="Chọn ngày để nhảy tới tuần chứa ngày đó">
+          <button id="jumpBtn">Đi tới</button>
+          <button id="settingsBtn" title="Đặt ngày bắt đầu tuần 1 (dùng khi reset học kỳ)">⚙ Tuần 1</button>
+          <button class="primary ghost" id="addBtn" title="Thêm buổi học mới">+ Thêm</button>
+          <button class="primary" id="pdfBtn" title="Tải PDF khổ ngang">⬇ PDF</button>
+          <button id="printBtn" title="In">🖨 In</button>
+        </div>
+      </div>
+
+      <div class="headers" id="headers"></div>
+      <div class="body-row" id="bodyRow">
+        <div class="hours" id="hoursCol"></div>
+        <div class="hourlines" id="hourlines"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal thêm/sửa buổi học -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h2 id="modalTitle">Thêm buổi học</h2>
+    <form id="eventForm">
+      <div class="row2">
+        <div class="field">
+          <label>Mã môn học</label>
+          <input type="text" id="f_hp" placeholder="VD: IT1108" required>
+        </div>
+        <div class="field">
+          <label>Mã lớp</label>
+          <input type="text" id="f_code" placeholder="VD: 171988">
+        </div>
+      </div>
+      <div class="field">
+        <label>Tên môn học</label>
+        <input type="text" id="f_name" placeholder="VD: Nhập môn lập trình" required>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Thứ</label>
+          <select id="f_day">
+            <option value="2">Thứ 2</option>
+            <option value="3">Thứ 3</option>
+            <option value="4">Thứ 4</option>
+            <option value="5">Thứ 5</option>
+            <option value="6">Thứ 6</option>
+            <option value="7">Thứ 7</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Loại</label>
+          <input type="text" id="f_type" placeholder="VD: LT, BT, LT+BT, TH, TN">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Giờ bắt đầu</label>
+          <input type="time" id="f_start" required>
+        </div>
+        <div class="field">
+          <label>Giờ kết thúc</label>
+          <input type="time" id="f_end" required>
+        </div>
+      </div>
+      <div class="field">
+        <label>Địa điểm học</label>
+        <input type="text" id="f_room" placeholder="VD: D3-301, Online, SanB13">
+      </div>
+      <div class="field">
+        <label>Tuần áp dụng</label>
+        <input type="text" id="f_weeks" placeholder="VD: 2-3,6-7,10,14,17-18" required>
+        <small>Ghi số tuần cách nhau bằng dấu phẩy, dùng dấu gạch ngang cho khoảng tuần liên tiếp.</small>
+      </div>
+      <div class="field">
+        <label>Màu môn học (tuỳ chọn)</label>
+        <input type="color" id="f_color" value="#2f6f6a">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="danger" id="deleteBtn" style="display:none;">Xóa buổi học</button>
+        <div class="right">
+          <button type="button" id="cancelBtn">Hủy</button>
+          <button type="submit" class="primary">Lưu</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal cấu hình tuần 1 -->
+<div class="overlay" id="settingsOverlay">
+  <div class="modal">
+    <h2>Đặt ngày bắt đầu tuần 1</h2>
+    <div class="field">
+      <label>Ngày Thứ 2 của tuần 1</label>
+      <input type="date" id="s_weekOneDate">
+      <small>Dùng để reset lịch cho học kỳ/kỳ học mới — toàn bộ số thứ tự tuần sẽ tính lại theo ngày này. Các buổi học và tuần áp dụng bạn đã lưu vẫn giữ nguyên số tuần, chỉ ngày tháng thực tế của mỗi tuần thay đổi theo mốc mới.</small>
+    </div>
+    <div class="modal-actions">
+      <div></div>
+      <div class="right">
+        <button type="button" id="settingsCancelBtn">Hủy</button>
+        <button type="button" class="primary" id="settingsSaveBtn">Lưu</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================== MÚI GIỜ (Hà Nội / Bangkok, UTC+7) ================== */
+const TIMEZONE = 'Asia/Bangkok';
+function nowTZ(){
+  const s = new Date().toLocaleString('en-US', { timeZone: TIMEZONE });
+  return new Date(s);
+}
+
+/* ================== DỮ LIỆU LỊCH HỌC (mặc định) ================== */
+let START_DATE = new Date(2026, 7, 31); // mặc định: 31/08/2026 = Thứ 2 tuần 1 — có thể đổi qua "⚙ Tuần 1"
+const SCHEDULE_END_DATE = new Date(2030, 11, 31); // khung thời gian trải tới hết năm 2030
+
+const SUBJECTS = {
+  IT1108: { name: "Nhập môn lập trình", color: "#2f6f6a" },
+  IT2000: { name: "Nhập môn CNTT và TT", color: "#8a5a2e" },
+  MI1111: { name: "Giải tích I", color: "#4a5fc1" },
+  MI1141: { name: "Đại số", color: "#b0473e" },
+  MIL1210:{ name: "Đường lối QP&AN", color: "#5b7a3a" },
+  MIL1220:{ name: "Công tác QP&AN", color: "#a3762f" },
+  MIL1230:{ name: "Quân sự chung", color: "#6b4e8e" },
+  MIL1240:{ name: "KT chiến đấu bộ binh", color: "#2c7fa3" },
+  PE1014: { name: "Lý luận TDTT", color: "#c0392b" },
+};
+
+const PALETTE = ["#2f6f6a","#8a5a2e","#4a5fc1","#b0473e","#5b7a3a","#a3762f","#6b4e8e","#2c7fa3","#c0392b","#1f6f43","#7a3b69","#3f6b8a","#946b2d","#37788f"];
+
+function W(str){
+  const out = [];
+  String(str).split(',').forEach(p=>{
+    p = p.trim();
+    if(p.includes('-')){
+      const [a,b] = p.split('-').map(Number);
+      for(let i=a;i<=b;i++) out.push(i);
+    } else if(p){
+      out.push(Number(p));
+    }
+  });
+  return out;
+}
+
+const EVENTS = [
+  // Thứ 2
+  {day:2, start:"06:45", end:"09:10", weeks:W("2-3,6-7,10,14,17-18"), room:"D3-301",  hp:"MI1141", code:"171985", type:"BT"},
+  {day:2, start:"06:45", end:"09:10", weeks:W("4-5,8-9,15-16,19"),    room:"Online",  hp:"MI1141", code:"171985", type:"BT"},
+  {day:2, start:"06:45", end:"11:05", weeks:W("11"),                  room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
+  {day:2, start:"06:45", end:"11:05", weeks:W("12"),                  room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
+  {day:2, start:"06:45", end:"11:05", weeks:W("13"),                  room:"D3-5-401",hp:"MIL1220",code:"172533", type:"LT+BT"},
+  {day:2, start:"09:20", end:"11:45", weeks:W("2-3,6-7,10,14,17-18"), room:"D3-301",  hp:"MI1111", code:"171982", type:"BT"},
+  {day:2, start:"09:20", end:"11:45", weeks:W("4-5,8-9,15-16,19"),    room:"Online",  hp:"MI1111", code:"171982", type:"BT"},
+  {day:2, start:"12:30", end:"17:30", weeks:W("2-6"),                 room:"B1-109",  hp:"IT2000", code:"768104", type:"TN"},
+  {day:2, start:"12:50", end:"17:10", weeks:W("12"),                  room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
+  {day:2, start:"12:50", end:"17:10", weeks:W("11"),                  room:"SanB13",  hp:"MIL1240",code:"172538", type:"TH"},
+  {day:2, start:"12:50", end:"17:10", weeks:W("13"),                  room:"SanKTX",  hp:"MIL1240",code:"172538", type:"TH"},
+
+  // Thứ 3
+  {day:3, start:"06:45", end:"11:05", weeks:W("13"), room:"D3-5-401", hp:"MIL1220",code:"172533", type:"LT+BT"},
+  {day:3, start:"06:45", end:"11:05", weeks:W("12"), room:"SanB13",   hp:"MIL1230",code:"172536", type:"LT"},
+  {day:3, start:"06:45", end:"11:05", weeks:W("11"), room:"SanB13",   hp:"MIL1240",code:"172538", type:"TH"},
+  {day:3, start:"12:50", end:"17:10", weeks:W("12"), room:"D3-5-401", hp:"MIL1230",code:"172534", type:"TH"},
+  {day:3, start:"12:50", end:"17:10", weeks:W("11"), room:"D3-5-401", hp:"MIL1240",code:"172538", type:"TH"},
+  {day:3, start:"12:50", end:"17:10", weeks:W("13"), room:"SanB13",   hp:"MIL1240",code:"172538", type:"TH"},
+
+  // Thứ 4
+  {day:4, start:"06:45", end:"08:15", weeks:W("2-10,14-19"), room:"D5-203",  hp:"MI1141", code:"171987", type:"LT"},
+  {day:4, start:"06:45", end:"11:05", weeks:W("11"),         room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
+  {day:4, start:"06:45", end:"11:05", weeks:W("13"),         room:"D3-5-401",hp:"MIL1220",code:"172533", type:"LT+BT"},
+  {day:4, start:"06:45", end:"11:05", weeks:W("12"),         room:"SanB13",  hp:"MIL1240",code:"172538", type:"TH"},
+  {day:4, start:"08:25", end:"10:05", weeks:W("2-10,14-19"), room:"D5-203",  hp:"MI1111", code:"171984", type:"LT"},
+  {day:4, start:"12:30", end:"17:30", weeks:W("7,9,14,16,18"),room:"B1-107", hp:"IT1108", code:"767979", type:"TN"},
+  {day:4, start:"12:50", end:"17:10", weeks:W("12"),         room:"SanKTX",  hp:"MIL1230",code:"172536", type:"LT"},
+  {day:4, start:"12:50", end:"17:10", weeks:W("11"),         room:"SanKTX",  hp:"MIL1240",code:"172538", type:"TH"},
+  {day:4, start:"12:50", end:"17:10", weeks:W("13"),         room:"SanB7",   hp:"MIL1240",code:"172538", type:"TH"},
+
+  // Thứ 5
+  {day:5, start:"06:45", end:"09:10", weeks:W("2-10,14-19"), room:"D3-401",  hp:"IT1108", code:"171988", type:"LT+BT"},
+  {day:5, start:"06:45", end:"11:05", weeks:W("11"),         room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
+  {day:5, start:"06:45", end:"11:05", weeks:W("12"),         room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
+  {day:5, start:"06:45", end:"11:05", weeks:W("13"),         room:"D3-5-401",hp:"MIL1220",code:"172533", type:"LT+BT"},
+  {day:5, start:"10:30", end:"11:30", weeks:W("2-10,14-19"), room:"TC-401",  hp:"PE1014", code:"768443", type:"LT+BT"},
+  {day:5, start:"12:50", end:"17:10", weeks:W("11"),         room:"SanB7",   hp:"MIL1240",code:"172538", type:"TH"},
+  {day:5, start:"12:50", end:"17:10", weeks:W("12"),         room:"SanB7",   hp:"MIL1240",code:"172538", type:"TH"},
+  {day:5, start:"12:50", end:"17:10", weeks:W("13"),         room:"SanB13",  hp:"MIL1240",code:"172538", type:"TH"},
+  {day:5, start:"16:00", end:"17:30", weeks:W("2-10,14-19"), room:"B1-103",  hp:"IT2000", code:"171981", type:"LT+BT"},
+
+  // Thứ 6
+  {day:6, start:"06:45", end:"10:05", weeks:W("12"), room:"D3-5-401", hp:"MIL1230",code:"172534", type:"TH"},
+  {day:6, start:"06:45", end:"11:05", weeks:W("13"), room:"D3-5-401", hp:"MIL1220",code:"172533", type:"LT+BT"},
+  {day:6, start:"06:45", end:"11:05", weeks:W("11"), room:"D3-5-401", hp:"MIL1230",code:"172534", type:"TH"},
+  {day:6, start:"10:15", end:"11:05", weeks:W("12"), room:"D3-5-401", hp:"MIL1230",code:"172536", type:"LT"},
+  {day:6, start:"12:50", end:"17:10", weeks:W("11"), room:"D3-5-401", hp:"MIL1210",code:"172532", type:"LT+BT"},
+  {day:6, start:"12:50", end:"17:10", weeks:W("12"), room:"D3-5-401", hp:"MIL1210",code:"172532", type:"LT+BT"},
+
+  // Thứ 7
+  {day:7, start:"06:45", end:"11:05", weeks:W("11"), room:"SanB7",   hp:"MIL1230",code:"172536", type:"LT"},
+  {day:7, start:"06:45", end:"11:05", weeks:W("12"), room:"SanB13",  hp:"MIL1240",code:"172538", type:"TH"},
+  {day:7, start:"12:50", end:"17:10", weeks:W("11"), room:"D3-5-401",hp:"MIL1210",code:"172532", type:"LT+BT"},
+  {day:7, start:"12:50", end:"17:10", weeks:W("12"), room:"D3-5-401",hp:"MIL1220",code:"172533", type:"LT+BT"},
+];
+EVENTS.forEach((e,i)=>{ e.id = 'b'+i; });
+
+const DAY_LABELS = {2:"Thứ 2",3:"Thứ 3",4:"Thứ 4",5:"Thứ 5",6:"Thứ 6",7:"Thứ 7"};
+const DAY_LIST = [2,3,4,5,6,7];
+
+const DAY_START_MIN = 6*60;
+const DAY_END_MIN   = 18*60;
+const TOTAL_MIN = DAY_END_MIN - DAY_START_MIN;
+
+function toMin(hhmm){ const [h,m] = hhmm.split(':').map(Number); return h*60+m; }
+function dateOnly(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+function addDays(d, n){ const r = new Date(d); r.setDate(r.getDate()+n); return r; }
+function fmtShort(d){ return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0'); }
+function toInputDate(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+
+function currentWeekNumber(){
+  const diffDays = Math.round((dateOnly(nowTZ()) - dateOnly(START_DATE)) / 86400000);
+  return Math.floor(diffDays/7) + 1;
+}
+function mondayOfWeek(weekNum){ return addDays(START_DATE, (weekNum-1)*7); }
+function weekNumberForDate(d){
+  const diffDays = Math.round((dateOnly(d) - dateOnly(START_DATE)) / 86400000);
+  return Math.floor(diffDays/7) + 1;
+}
+function computeMaxWeek(){
+  const diffDays = Math.round((dateOnly(SCHEDULE_END_DATE) - dateOnly(START_DATE)) / 86400000);
+  return Math.max(Math.floor(diffDays/7) + 1, 1);
+}
+
+let MAX_WEEK = computeMaxWeek();
+let selectedWeek = 1;
+let realCurrentWeek = 1;
+
+/* ================== LƯU TRỮ (thêm/sửa/xóa buổi học + cấu hình tuần 1) ================== */
+const STORAGE_KEY = 'schedule-data-v1';
+let overrides = {};
+let customEvents = [];
+let customSubjects = {};
+let settings = {};
+
+async function loadData(){
+  try{
+    const r = await window.storage.get(STORAGE_KEY, false);
+    if(r && r.value){
+      const d = JSON.parse(r.value);
+      overrides = d.overrides || {};
+      customEvents = d.customEvents || [];
+      customSubjects = d.customSubjects || {};
+      settings = d.settings || {};
+      if(settings.weekOneDate){
+        const [y,m,dd] = settings.weekOneDate.split('-').map(Number);
+        START_DATE = new Date(y, m-1, dd);
+      }
+    }
+  }catch(e){
+    // chưa có dữ liệu lưu trước đó
+  }
+}
+async function saveData(){
+  try{
+    await window.storage.set(STORAGE_KEY, JSON.stringify({overrides, customEvents, customSubjects, settings}), false);
+  }catch(e){
+    console.error('Không lưu được dữ liệu:', e);
+  }
+}
+
+function getAllSubjects(){
+  return {...SUBJECTS, ...customSubjects};
+}
+function getAllEvents(){
+  const base = EVENTS
+    .filter(e => overrides[e.id] !== null)
+    .map(e => overrides[e.id] ? {...overrides[e.id], id: e.id} : e);
+  return [...base, ...customEvents];
+}
+function pickColorFor(hp){
+  const all = getAllSubjects();
+  if(all[hp]) return all[hp].color;
+  const idx = Object.keys(all).length % PALETTE.length;
+  return PALETTE[idx];
+}
+
+/* ================== RENDER ================== */
+function buildHours(){
+  const hoursCol = document.getElementById('hoursCol');
+  const hourlines = document.getElementById('hourlines');
+  hoursCol.innerHTML = '';
+  hourlines.innerHTML = '';
+  for(let h=6; h<=18; h++){
+    const pct = ((h*60 - DAY_START_MIN) / TOTAL_MIN) * 100;
+    const lbl = document.createElement('div');
+    lbl.className = 'hour-mark';
+    lbl.style.top = pct + '%';
+    lbl.textContent = String(h).padStart(2,'0')+':00';
+    hoursCol.appendChild(lbl);
+
+    const line = document.createElement('div');
+    line.className = 'hourline';
+    line.style.top = pct + '%';
+    hourlines.appendChild(line);
+  }
+}
+
+function weekOptions(){
+  const sel = document.getElementById('weekSelect');
+  sel.innerHTML = '';
+  for(let w=1; w<=MAX_WEEK; w++){
+    const opt = document.createElement('option');
+    opt.value = w;
+    opt.textContent = 'Tuần ' + w + (w===realCurrentWeek ? ' (hiện tại)' : '');
+    sel.appendChild(opt);
+  }
+  sel.value = selectedWeek;
+}
+
+function render(){
+  const mon = mondayOfWeek(selectedWeek);
+  const sat = addDays(mon, 5);
+  document.getElementById('weekLabel').innerHTML =
+    'Tuần ' + selectedWeek + '<span>' + fmtShort(mon) + ' – ' + fmtShort(sat) + '</span>';
+  document.getElementById('weekSelect').value = selectedWeek;
+
+  const nowLocal = nowTZ();
+  const todayStr = dateOnly(nowLocal).getTime();
+  const allSubjects = getAllSubjects();
+  const allEvents = getAllEvents();
+
+  const headers = document.getElementById('headers');
+  headers.innerHTML = '<div class="corner"></div>' + DAY_LIST.map((d,i)=>{
+    const date = addDays(mon, i);
+    const isToday = dateOnly(date).getTime() === todayStr;
+    return `<div class="day-h${isToday?' today':''}">${DAY_LABELS[d]}<span class="d">${fmtShort(date)}</span></div>`;
+  }).join('');
+
+  buildHours();
+
+  const bodyRow = document.getElementById('bodyRow');
+  bodyRow.querySelectorAll('.day-col').forEach(el=>el.remove());
+
+  DAY_LIST.forEach((d,i)=>{
+    const date = addDays(mon, i);
+    const isToday = dateOnly(date).getTime() === todayStr;
+    const col = document.createElement('div');
+    col.className = 'day-col' + (isToday ? ' today' : '');
+
+    allEvents.filter(e=>e.day===d && e.weeks.includes(selectedWeek)).forEach(e=>{
+      const s = toMin(e.start), en = toMin(e.end);
+      const top = ((s-DAY_START_MIN)/TOTAL_MIN)*100;
+      const height = ((en-s)/TOTAL_MIN)*100;
+      const subj = allSubjects[e.hp] || { name: e.hp, color: '#555' };
+      const box = document.createElement('div');
+      box.className = 'event';
+      box.style.top = top+'%';
+      box.style.height = height+'%';
+      box.style.background = subj.color + '22';
+      box.style.borderLeftColor = subj.color;
+      box.style.color = subj.color;
+      box.innerHTML = `<span class="name">${subj.name}</span>
+        <span class="meta">${e.start}-${e.end} · ${e.room||''}</span>
+        <span class="meta">${e.type||''} · Lớp ${e.code||''}</span>`;
+      box.addEventListener('click', ()=> openModal(e));
+      col.appendChild(box);
+    });
+
+    if(isToday){
+      const nowMin = nowLocal.getHours()*60 + nowLocal.getMinutes();
+      if(nowMin >= DAY_START_MIN && nowMin <= DAY_END_MIN){
+        const pct = ((nowMin-DAY_START_MIN)/TOTAL_MIN)*100;
+        const line = document.createElement('div');
+        line.className = 'now-line';
+        line.style.top = pct+'%';
+        col.appendChild(line);
+      }
+    }
+
+    bodyRow.appendChild(col);
+  });
+}
+
+/* ================== ĐỒNG HỒ ĐỒNG BỘ HÀ NỘI/BANGKOK ================== */
+function tickClock(){
+  const n = nowTZ();
+  const hh = String(n.getHours()).padStart(2,'0');
+  const mm = String(n.getMinutes()).padStart(2,'0');
+  const ss = String(n.getSeconds()).padStart(2,'0');
+  document.getElementById('clockTime').textContent = `${hh}:${mm}:${ss}`;
+
+  const newRealWeek = currentWeekNumber();
+  if(newRealWeek !== realCurrentWeek){
+    realCurrentWeek = newRealWeek;
+    weekOptions();
+  }
+}
+function tickRender(){ render(); }
+
+/* ================== MODAL THÊM / SỬA / XÓA BUỔI HỌC ================== */
+const overlay = document.getElementById('overlay');
+const form = document.getElementById('eventForm');
+let editingId = null;
+
+function openModal(existing){
+  form.reset();
+  document.getElementById('f_color').value = '#2f6f6a';
+  if(existing){
+    editingId = existing.id;
+    document.getElementById('modalTitle').textContent = 'Sửa buổi học';
+    document.getElementById('deleteBtn').style.display = 'inline-block';
+    document.getElementById('f_hp').value = existing.hp;
+    document.getElementById('f_code').value = existing.code || '';
+    const subj = getAllSubjects()[existing.hp];
+    document.getElementById('f_name').value = subj ? subj.name : existing.hp;
+    document.getElementById('f_day').value = existing.day;
+    document.getElementById('f_type').value = existing.type || '';
+    document.getElementById('f_start').value = existing.start;
+    document.getElementById('f_end').value = existing.end;
+    document.getElementById('f_room').value = existing.room || '';
+    document.getElementById('f_weeks').value = existing.weeks.join(',');
+    if(subj) document.getElementById('f_color').value = subj.color;
+  } else {
+    editingId = null;
+    document.getElementById('modalTitle').textContent = 'Thêm buổi học';
+    document.getElementById('deleteBtn').style.display = 'none';
+    document.getElementById('f_day').value = '2';
+    document.getElementById('f_weeks').value = String(selectedWeek);
+  }
+  overlay.classList.add('open');
+}
+function closeModal(){
+  overlay.classList.remove('open');
+  editingId = null;
+}
+
+document.getElementById('addBtn').addEventListener('click', ()=> openModal(null));
+document.getElementById('cancelBtn').addEventListener('click', closeModal);
+overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeModal(); });
+
+form.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const hp = document.getElementById('f_hp').value.trim().toUpperCase();
+  const name = document.getElementById('f_name').value.trim();
+  const code = document.getElementById('f_code').value.trim();
+  const day = Number(document.getElementById('f_day').value);
+  const type = document.getElementById('f_type').value.trim();
+  const start = document.getElementById('f_start').value;
+  const end = document.getElementById('f_end').value;
+  const room = document.getElementById('f_room').value.trim();
+  const weeksStr = document.getElementById('f_weeks').value.trim();
+  const color = document.getElementById('f_color').value;
+
+  if(!hp || !name || !start || !end || !weeksStr){ return; }
+  if(toMin(end) <= toMin(start)){ alert('Giờ kết thúc phải sau giờ bắt đầu.'); return; }
+
+  const weeks = W(weeksStr);
+  if(weeks.length === 0){ alert('Vui lòng nhập tuần áp dụng hợp lệ.'); return; }
+
+  const existingSubj = getAllSubjects()[hp];
+  customSubjects[hp] = {
+    name,
+    color: color || (existingSubj ? existingSubj.color : pickColorFor(hp))
+  };
+
+  const eventData = { day, start, end, weeks, room, hp, code, type };
+
+  if(editingId){
+    if(editingId.startsWith('b')){
+      overrides[editingId] = eventData;
+    } else {
+      const idx = customEvents.findIndex(ev=>ev.id===editingId);
+      if(idx>-1) customEvents[idx] = {...eventData, id: editingId};
+    }
+  } else {
+    eventData.id = 'c' + Date.now() + Math.floor(Math.random()*1000);
+    customEvents.push(eventData);
+  }
+
+  await saveData();
+  render();
+  closeModal();
+});
+
+document.getElementById('deleteBtn').addEventListener('click', async ()=>{
+  if(!editingId) return;
+  if(!confirm('Xóa buổi học này?')) return;
+  if(editingId.startsWith('b')){
+    overrides[editingId] = null;
+  } else {
+    customEvents = customEvents.filter(ev=>ev.id!==editingId);
+  }
+  await saveData();
+  render();
+  closeModal();
+});
+
+/* ================== MODAL CẤU HÌNH TUẦN 1 ================== */
+const settingsOverlay = document.getElementById('settingsOverlay');
+document.getElementById('settingsBtn').addEventListener('click', ()=>{
+  document.getElementById('s_weekOneDate').value = toInputDate(START_DATE);
+  settingsOverlay.classList.add('open');
+});
+document.getElementById('settingsCancelBtn').addEventListener('click', ()=>{
+  settingsOverlay.classList.remove('open');
+});
+settingsOverlay.addEventListener('click', (e)=>{ if(e.target === settingsOverlay) settingsOverlay.classList.remove('open'); });
+
+document.getElementById('settingsSaveBtn').addEventListener('click', async ()=>{
+  const val = document.getElementById('s_weekOneDate').value;
+  if(!val) return;
+  const [y,m,d] = val.split('-').map(Number);
+  START_DATE = new Date(y, m-1, d);
+  settings.weekOneDate = val;
+  MAX_WEEK = computeMaxWeek();
+  realCurrentWeek = currentWeekNumber();
+  selectedWeek = Math.min(Math.max(realCurrentWeek,1), MAX_WEEK);
+  await saveData();
+  weekOptions();
+  render();
+  settingsOverlay.classList.remove('open');
+});
+
+/* ================== ĐIỀU HƯỚNG TUẦN ================== */
+document.getElementById('prevBtn').addEventListener('click', ()=>{
+  selectedWeek = Math.max(1, selectedWeek-1);
+  render();
+});
+document.getElementById('nextBtn').addEventListener('click', ()=>{
+  selectedWeek = Math.min(MAX_WEEK, selectedWeek+1);
+  render();
+});
+document.getElementById('todayBtn').addEventListener('click', ()=>{
+  selectedWeek = Math.min(Math.max(realCurrentWeek,1), MAX_WEEK);
+  render();
+});
+document.getElementById('weekSelect').addEventListener('change', (e)=>{
+  selectedWeek = Number(e.target.value);
+  render();
+});
+document.getElementById('jumpBtn').addEventListener('click', ()=>{
+  const val = document.getElementById('jumpDate').value;
+  if(!val) return;
+  const [y,m,d] = val.split('-').map(Number);
+  const target = new Date(y, m-1, d);
+  const w = weekNumberForDate(target);
+  selectedWeek = Math.min(Math.max(w,1), MAX_WEEK);
+  render();
+});
+
+document.getElementById('printBtn').addEventListener('click', ()=> window.print());
+document.getElementById('pdfBtn').addEventListener('click', ()=>{
+  const el = document.getElementById('capture');
+  const opt = {
+    margin: 6,
+    filename: 'thoi-khoa-bieu-tuan-' + selectedWeek + '.pdf',
+    image: { type:'jpeg', quality:0.98 },
+    html2canvas: { scale:2, useCORS:true },
+    jsPDF: { unit:'mm', format:'a4', orientation:'landscape' }
+  };
+  document.querySelector('.controls').style.display = 'none';
+  html2pdf().set(opt).from(el).save().then(()=>{
+    document.querySelector('.controls').style.display = 'flex';
+  });
+});
+
+/* ================== KHỞI TẠO ================== */
+(async function init(){
+  await loadData();
+  MAX_WEEK = computeMaxWeek();
+  realCurrentWeek = currentWeekNumber();
+  selectedWeek = Math.min(Math.max(realCurrentWeek,1), MAX_WEEK);
+  weekOptions();
+  render();
+  tickClock();
+  setInterval(tickClock, 1000);
+  setInterval(tickRender, 60000);
+})();
+</script>
+</body>
+</html>
