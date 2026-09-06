@@ -22,13 +22,13 @@
   }
   .wrap{height:calc(100vh - 20px);display:flex;flex-direction:column;}
 
-  button, select, input{
+  button, select, input, textarea{
     font-family:inherit;font-size:12.5px;
     border:1.5px solid var(--ink);
     background:var(--paper);color:var(--ink);
     padding:6px 10px;border-radius:3px;cursor:pointer;
   }
-  input{cursor:text;}
+  input, textarea{cursor:text;}
   button:hover{background:var(--ink);color:var(--paper);}
   button.primary{background:var(--ink);color:var(--paper);}
   button.primary:hover{background:var(--paper);color:var(--ink);}
@@ -36,6 +36,7 @@
   button.danger{border-color:#c0392b;color:#c0392b;}
   button.danger:hover{background:#c0392b;color:#fff;}
   select{cursor:pointer;padding:6px 8px;}
+  textarea{resize:vertical;line-height:1.4;}
 
   .grid-outer{
     flex:1;
@@ -156,10 +157,12 @@
   .field{margin-bottom:12px;}
   .field label{display:block;font-size:12px;font-weight:700;margin-bottom:4px;}
   .field small{display:block;font-weight:400;color:#5b5f72;margin-top:5px;font-size:11px;}
-  .field input, .field select{width:100%;}
+  .field input, .field select, .field textarea{width:100%;}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   .modal-actions{display:flex;justify-content:space-between;gap:10px;margin-top:18px;}
   .modal-actions .right{display:flex;gap:8px;}
+  .assign-row{border-top:1px dashed var(--line);padding-top:6px;margin-top:6px;}
+  .assign-row:first-child{border-top:none;margin-top:0;}
 
   @media print{
     body{padding:0;background:#fff;overflow:visible;}
@@ -179,6 +182,7 @@
       <div class="topbar">
         <div class="title-block">
           <h1>Thời khóa biểu cá nhân</h1>
+          <span style="font-size:10px;color:#5b5f72;">bản thử nhập SIS · v2</span>
           <span class="clock">Hà Nội/Bangkok (UTC+7) <b id="clockTime">--:--:--</b></span>
           <span class="sync-status" id="syncStatus"></span>
         </div>
@@ -192,6 +196,7 @@
           <button id="jumpBtn">Đi tới</button>
           <button id="settingsBtn" title="Đặt ngày bắt đầu tuần 1 (dùng khi reset học kỳ)">⚙ Tuần 1</button>
           <button id="syncBtn" title="Đổi mã đồng bộ giữa các thiết bị">🔗 <span id="syncCodeLabel">...</span></button>
+          <button id="importBtn" title="Dán TKB copy từ trang SIS HUST">📋 Nhập từ SIS</button>
           <button class="primary ghost" id="addBtn" title="Thêm buổi học mới">+ Thêm</button>
           <button class="primary" id="pdfBtn" title="Tải PDF khổ ngang">⬇ PDF</button>
           <button id="printBtn" title="In">🖨 In</button>
@@ -314,6 +319,31 @@
   </div>
 </div>
 
+<!-- Modal nhập TKB từ SIS -->
+<div class="overlay" id="importOverlay">
+  <div class="modal" style="max-width:560px;">
+    <h2>Nhập thời khóa biểu từ SIS</h2>
+    <div class="field">
+      <label>Dán dữ liệu đã copy từ SIS</label>
+      <textarea id="importText" rows="12" placeholder="Dán toàn bộ nội dung đã copy từ SIS vào đây (bảng TKB, và bảng danh sách học phần nếu có)..."></textarea>
+      <small>Web tự tách từng buổi học (Thứ, giờ, tuần, phòng, mã lớp) và tự nhận diện tên môn — không cần gõ tay gì cả. Mã lớp đã có trong lịch cũ hoặc trùng với bảng danh sách học phần bạn dán kèm sẽ tự có tên đúng; mã lớp hoàn toàn mới sẽ tạm đặt tên theo mã lớp, sau đó bạn chỉ cần bấm vào buổi học đó trên lịch để đổi tên nếu muốn.</small>
+    </div>
+    <div class="field">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:400;">
+        <input type="checkbox" id="importReplace" style="width:auto;">
+        Xóa toàn bộ lịch hiện tại trước khi nhập (dùng khi sang học kỳ mới)
+      </label>
+    </div>
+    <div class="modal-actions">
+      <div></div>
+      <div class="right">
+        <button type="button" id="importCancelBtn">Hủy</button>
+        <button type="button" class="primary" id="importConfirmBtn">Nhập ngay</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ================== MÚI GIỜ (Hà Nội / Bangkok, UTC+7) ================== */
 const TIMEZONE = 'Asia/Bangkok';
@@ -352,6 +382,64 @@ function W(str){
     }
   });
   return out;
+}
+
+/* ---- Tiện ích cho tính năng nhập TKB copy từ SIS ---- */
+function padTime(t){
+  const [h,m] = t.split(':');
+  return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+}
+
+// Quét toàn bộ văn bản dán vào theo từng "khối" 5 token liên tiếp:
+// Thứ(2-7)  Giờ(HH:MM-HH:MM)  Tuần(số/phẩy/gạch)  Phòng(không khoảng trắng)  Mã lớp(số)
+// Cách này không phụ thuộc việc dữ liệu dán vào có xuống dòng/tab hay bị dồn thành 1 dòng.
+function parseSISPaste(text){
+  const tokens = text.split(/\s+/).filter(Boolean);
+  const rows = [];
+  let i = 0;
+  while(i < tokens.length){
+    const dayTok = tokens[i];
+    const timeTok = tokens[i+1];
+    if(/^[2-7]$/.test(dayTok) && timeTok && /^\d{1,2}:\d{2}-\d{1,2}:\d{2}$/.test(timeTok)){
+      const weeksTok = tokens[i+2];
+      const roomTok = tokens[i+3];
+      const codeTok = tokens[i+4];
+      if(weeksTok && /^[\d,\-]+$/.test(weeksTok) && roomTok && codeTok && /^\d+$/.test(codeTok)){
+        const [s,e] = timeTok.split('-');
+        rows.push({
+          day: Number(dayTok),
+          start: padTime(s),
+          end: padTime(e),
+          weeksStr: weeksTok,
+          room: roomTok,
+          code: codeTok
+        });
+        i += 5;
+        continue;
+      }
+    }
+    i += 1;
+  }
+  return rows;
+}
+
+// Nếu người dùng dán kèm bảng "Danh sách học phần đăng ký" trên SIS (Mã lớp, Mã lớp kèm,
+// Tên lớp, Mã HP, Loại lớp, ...), hàm này tự dò từng dòng để lấy tên môn + mã học phần
+// tương ứng với TỪNG mã lớp (cả "Mã lớp" và "Mã lớp kèm" đều được gán, vì cả hai đều có thể
+// xuất hiện trong bảng TKB) — hoàn toàn tự động, không cần gõ tay.
+function parseCourseListLines(text){
+  const map = {};
+  const re = /^(\d{4,7})\s+(\d{4,7})\s+(.+?)\s+([A-ZĐ]{2,4}\d{3,5})\s+(\S+)\s+.*$/;
+  text.split('\n').forEach(line=>{
+    const m = line.trim().match(re);
+    if(m){
+      const [, maLop, maLopKem, tenLop, maHP, loaiLop] = m;
+      const entry = { hp: maHP.toUpperCase(), name: tenLop.trim(), type: loaiLop.trim() };
+      map[maLop] = entry;
+      map[maLopKem] = entry;
+    }
+  });
+  return map;
 }
 
 const EVENTS = [
@@ -407,6 +495,13 @@ const EVENTS = [
   {day:7, start:"12:50", end:"17:10", weeks:W("12"), room:"D3-5-401",hp:"MIL1220",code:"172533", type:"LT+BT"},
 ];
 EVENTS.forEach((e,i)=>{ e.id = 'b'+i; });
+
+// Mã lớp -> {mã học phần, loại}, học từ dữ liệu mặc định ở trên.
+// Khi nhập TKB mới từ SIS, những mã lớp trùng với dữ liệu cũ sẽ tự nhận ra môn học,
+// chỉ những mã lớp hoàn toàn mới mới cần gán thủ công.
+const builtinCodeMap = {};
+EVENTS.forEach(e=>{ if(e.code) builtinCodeMap[e.code] = { hp: e.hp, type: e.type }; });
+let classCodeMap = {...builtinCodeMap};
 
 const DAY_LABELS = {2:"Thứ 2",3:"Thứ 3",4:"Thứ 4",5:"Thứ 5",6:"Thứ 6",7:"Thứ 7"};
 const DAY_LIST = [2,3,4,5,6,7];
@@ -466,6 +561,7 @@ async function loadData(){
       customEvents = json.data.customEvents || [];
       customSubjects = json.data.customSubjects || {};
       settings = json.data.settings || {};
+      classCodeMap = {...builtinCodeMap, ...(json.data.classCodeMap || {})};
       if(settings.weekOneDate){
         const [y,m,dd] = settings.weekOneDate.split('-').map(Number);
         START_DATE = new Date(y, m-1, dd);
@@ -485,7 +581,7 @@ async function saveData(){
     const res = await fetch('/api/schedule', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ id: code, data: {overrides, customEvents, customSubjects, settings} })
+      body: JSON.stringify({ id: code, data: {overrides, customEvents, customSubjects, settings, classCodeMap} })
     });
     const json = await res.json();
     if(!res.ok) throw new Error(json.error || 'Lỗi lưu dữ liệu');
@@ -690,6 +786,7 @@ form.addEventListener('submit', async (e)=>{
     name,
     color: color || (existingSubj ? existingSubj.color : pickColorFor(hp))
   };
+  if(code) classCodeMap[code] = { hp, type };
 
   const eventData = { day, start, end, weeks, room, hp, code, type };
 
@@ -772,6 +869,75 @@ document.getElementById('syncSaveBtn').addEventListener('click', async ()=>{
   selectedWeek = Math.min(Math.max(realCurrentWeek,1), MAX_WEEK);
   weekOptions();
   render();
+});
+
+/* ================== MODAL NHẬP TKB TỪ SIS (tự động hoàn toàn) ================== */
+const importOverlay = document.getElementById('importOverlay');
+
+function openImportModal(){
+  document.getElementById('importText').value = '';
+  document.getElementById('importReplace').checked = false;
+  importOverlay.classList.add('open');
+}
+document.getElementById('importBtn').addEventListener('click', openImportModal);
+document.getElementById('importCancelBtn').addEventListener('click', ()=> importOverlay.classList.remove('open'));
+importOverlay.addEventListener('click', (e)=>{ if(e.target === importOverlay) importOverlay.classList.remove('open'); });
+
+document.getElementById('importConfirmBtn').addEventListener('click', async ()=>{
+  const text = document.getElementById('importText').value;
+  const rows = parseSISPaste(text);
+  if(rows.length === 0){
+    alert('Không nhận diện được buổi học nào. Hãy kiểm tra lại dữ liệu đã dán — cần đủ các cột Thứ, Thời gian, Tuần học, Phòng học, Lớp học.');
+    return;
+  }
+  const courseMap = parseCourseListLines(text);
+
+  const replace = document.getElementById('importReplace').checked;
+  if(replace){
+    EVENTS.forEach(e=>{ overrides[e.id] = null; });
+    customEvents = [];
+  }
+
+  let placeholderCount = 0;
+  rows.forEach((r, idx)=>{
+    let hp, type = '';
+    if(courseMap[r.code]){
+      hp = courseMap[r.code].hp;
+      type = courseMap[r.code].type || '';
+      const existingColor = (getAllSubjects()[hp] || {}).color;
+      customSubjects[hp] = { name: courseMap[r.code].name, color: existingColor || pickColorFor(hp) };
+      classCodeMap[r.code] = { hp, type };
+    } else if(classCodeMap[r.code]){
+      hp = classCodeMap[r.code].hp;
+      type = classCodeMap[r.code].type || '';
+    } else {
+      hp = 'LOP' + r.code;
+      if(!getAllSubjects()[hp]) customSubjects[hp] = { name: 'Lớp ' + r.code, color: pickColorFor(hp) };
+      classCodeMap[r.code] = { hp, type: '' };
+      placeholderCount++;
+    }
+    customEvents.push({
+      id: 'imp' + Date.now() + '_' + idx,
+      day: r.day,
+      start: r.start,
+      end: r.end,
+      weeks: W(r.weeksStr),
+      room: r.room,
+      hp, code: r.code, type
+    });
+  });
+
+  await saveData();
+  MAX_WEEK = computeMaxWeek();
+  weekOptions();
+  render();
+  importOverlay.classList.remove('open');
+
+  let msg = 'Đã tự động thêm ' + rows.length + ' buổi học vào thời khóa biểu.';
+  if(placeholderCount > 0){
+    msg += '\n' + placeholderCount + ' mã lớp chưa rõ tên môn (được đặt tạm theo mã lớp) — bấm vào buổi học đó trên lịch để đổi tên nếu muốn.';
+  }
+  alert(msg);
 });
 
 /* ================== ĐIỀU HƯỚNG TUẦN ================== */
